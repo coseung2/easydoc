@@ -1,0 +1,9 @@
+node_modules/
+.npm-cache/
+.expo/
+dist/
+target/
+*.log
+.DS_Store
+apps/mobile/android/
+apps/mobile/ios/
