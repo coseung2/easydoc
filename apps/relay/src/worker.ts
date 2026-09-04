@@ -105,7 +105,7 @@ export class PairingCoordinator {
 
       if (url.pathname === "/claim") {
         const claimed = await this.store.claim(
-          body.pairing as string | Record<string, unknown>,
+          body.pairing as string | import("../../../packages/protocol/src/index.ts").PairingPayload,
           String(body.mobileId ?? ""),
           String(body.mobilePublicKey ?? ""),
         );
