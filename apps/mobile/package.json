@@ -27,7 +27,8 @@
     "pdf-lib": "^1.17.1",
     "react": "19.2.3",
     "react-native": "0.86.0",
-    "react-native-document-scanner-plugin": "^2.0.4"
+    "react-native-document-scanner-plugin": "^2.0.4",
+    "react-native-pdf-to-image": "^4.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",

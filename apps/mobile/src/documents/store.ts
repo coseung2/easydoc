@@ -117,3 +117,28 @@ export async function importLocalFile(input: { uri: string; name: string; mimeTy
   );
   return document;
 }
+
+export async function saveGeneratedPdf(bytes: Uint8Array, title: string, pageCount: number): Promise<LocalDocument> {
+  const id = crypto.randomUUID();
+  const safeTitle = (title.replace(/[\\/]/gu, "_") || `document_${id}.pdf`).replace(/\.pdf$/iu, "") + ".pdf";
+  const documentDirectory = new Directory(Paths.document, "EasyDoc", "generated", id);
+  documentDirectory.create({ intermediates: true, idempotent: true });
+  const target = new File(documentDirectory, safeTitle);
+  target.create({ overwrite: true, intermediates: true });
+  target.write(bytes);
+  const document: LocalDocument = {
+    id,
+    title: safeTitle,
+    uri: target.uri,
+    pageCount,
+    size: target.size,
+    mimeType: "application/pdf",
+    createdAt: Date.now(),
+  };
+  const db = await database();
+  await db.runAsync(
+    "INSERT INTO documents (id, title, uri, page_count, size, mime_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    document.id, document.title, document.uri, document.pageCount, document.size, document.mimeType, document.createdAt,
+  );
+  return document;
+}

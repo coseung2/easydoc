@@ -10,6 +10,7 @@ import { SettingsScreen } from "./src/ui/settings-screen";
 import { ScannerScreen } from "./src/scanner/scanner-screen";
 import { listLocalDocuments, importLocalFile, type LocalDocument } from "./src/documents/store";
 import { DocumentViewerScreen, PresentationScreen } from "./src/ui/document-viewer";
+import { PdfToolsScreen } from "./src/ui/pdf-tools-screen";
 import { getStoredPairing } from "./src/pairing/client";
 import { countPendingTransfers, enqueueTransfer, listPendingTransfers, updateTransferStatus } from "./src/transfer/queue";
 import { MobileRelayClient, type RelayState } from "./src/transfer/client";
@@ -116,13 +117,13 @@ export default function App() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+      {route === "home" && <Home onScan={() => setRoute("scan")} onOpen={openFile} onDocuments={() => setRoute("documents")} onPresentation={() => { setSelectedFile(null); setRoute("presentation"); }} onTools={() => setRoute("tools")} />}
       {route === "documents" && <Documents imported={importedFiles} pendingCount={pendingCount} transfer={relayState.transfer} onSend={queueFile} onOpen={(file) => { setSelectedFile(file); setRoute("viewer"); }} onImport={openFile} />}
-      {route === "documents" && <Documents imported={importedFiles} pendingCount={pendingCount} transfer={relayState.transfer} onSend={queueFile} onOpen={(file) => setRoute(file.type === "PPT" ? "presentation" : "viewer")} onImport={openFile} />}
       {route === "scan" && <ScannerScreen onClose={() => setRoute("home")} onSaved={(document) => { addLocalDocument(document); setRoute("documents"); }} />}
+      {route === "tools" && <PdfToolsScreen onSaved={addLocalDocument} />}
+      {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} onPair={() => setRoute("pairing")} />}
       {route === "viewer" && <DocumentViewerScreen file={selectedFile} onBack={() => setRoute("documents")} onPresent={() => setRoute("presentation")} />}
-      {route === "viewer" && <Viewer onBack={() => setRoute("documents")} />}
-      {route === "presentation" && <PresentationScreen file={selectedFile} onBack={() => setRoute(selectedFile ? "viewer" : "documents")} />}
-      {route === "presentation" && <Presentation onBack={() => setRoute("documents")} />}
+      {route === "presentation" && <PresentationScreen file={selectedFile} onBack={() => setRoute(selectedFile ? "viewer" : "home")} />}
       {route === "pairing" && <PairingScreen relayBaseUrl={RELAY_BASE_URL} onBack={() => setRoute("settings")} onPaired={async () => { setPaired(true); await connectRelay(); setRoute("settings"); }} />}
       {route !== "viewer" && route !== "presentation" && route !== "pairing" && <BottomNav active={activeTab} onChange={setRoute} />}
     </SafeAreaView>
