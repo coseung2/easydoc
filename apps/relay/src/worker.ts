@@ -13,18 +13,17 @@ export default {
       const credential = await verifySessionCredential(token, env.SESSION_SIGNING_SECRET);
       url.searchParams.set("roomId", credential.roomId);
       return env.ROOM.get(env.ROOM.idFromName(credential.roomId)).fetch(new Request(url, request));
-    } catch {
-      return new Response("unauthorized", { status: 401 });
-    }
+    } catch { return new Response("unauthorized", { status: 401 }); }
   },
 };
 
 export class PairRoom {
   private readonly room = new RelayRoom();
-  constructor(private readonly state: any, private readonly env: Env) {}
+  private readonly state: any;
+  private readonly env: Env;
+  constructor(state: any, env: Env) { this.state = state; this.env = env; }
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const token = url.searchParams.get("token") ?? "";
+    const url = new URL(request.url); const token = url.searchParams.get("token") ?? "";
     const credential = await verifySessionCredential(token, this.env.SESSION_SIGNING_SECRET);
     const Pair = (globalThis as any).WebSocketPair;
     if (!Pair) return new Response("WebSocketPair unavailable", { status: 500 });
