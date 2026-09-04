@@ -3,8 +3,20 @@ export type SessionCredential = { version: 1; roomId: string; deviceId: string; 
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const base64UrlEncode = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64url");
-const base64UrlDecode = (value: string): Uint8Array => new Uint8Array(Buffer.from(value, "base64url"));
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+function base64UrlDecode(value: string): Uint8Array {
+  const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padding = (4 - (base64.length % 4)) % 4;
+  let binary: string;
+  try { binary = atob(base64 + "=".repeat(padding)); } catch { throw new Error("pairing_invalid"); }
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
 
 async function hmac(secret: string, payload: string): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
