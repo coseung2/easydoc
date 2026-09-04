@@ -122,7 +122,7 @@ export default function App() {
       {route === "scan" && <ScannerScreen onClose={() => setRoute("home")} onSaved={(document) => { addLocalDocument(document); setRoute("documents"); }} />}
       {route === "tools" && <PdfToolsScreen onSaved={addLocalDocument} />}
       {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} onPair={() => setRoute("pairing")} />}
-      {route === "viewer" && <DocumentViewerScreen file={selectedFile} onBack={() => setRoute("documents")} onPresent={() => setRoute("presentation")} />}
+      {route === "viewer" && <DocumentViewerScreen file={selectedFile} onBack={() => setRoute("documents")} onPresent={() => setRoute("presentation")} onSend={selectedFile?.uri ? () => queueFile(selectedFile) : undefined} />}
       {route === "presentation" && <PresentationScreen file={selectedFile} onBack={() => setRoute(selectedFile ? "viewer" : "home")} />}
       {route === "pairing" && <PairingScreen relayBaseUrl={RELAY_BASE_URL} onBack={() => setRoute("settings")} onPaired={async () => { setPaired(true); await connectRelay(); setRoute("settings"); }} />}
       {route !== "viewer" && route !== "presentation" && route !== "pairing" && <BottomNav active={activeTab} onChange={setRoute} />}
