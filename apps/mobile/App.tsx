@@ -7,13 +7,15 @@ import { ActionCard, BottomNav, Chip, FileBadge, IconButton, ScreenHeader, Searc
 import { colors, radius } from "./src/ui/theme";
 import { PairingScreen } from "./src/ui/pairing-screen";
 import { SettingsScreen } from "./src/ui/settings-screen";
+import { ScannerScreen } from "./src/scanner/scanner-screen";
+import { listLocalDocuments, type LocalDocument } from "./src/documents/store";
 import { getStoredPairing } from "./src/pairing/client";
 import { MobileRelayClient, type RelayState } from "./src/transfer/client";
 
 type Route = TabKey | "viewer" | "presentation" | "pairing";
 const RELAY_BASE_URL = globalThis.process?.env?.EXPO_PUBLIC_RELAY_URL ?? "";
 type Filter = "자동" | "컬러" | "회색조" | "흑백";
-type RecentFile = { name: string; meta: string; type: string };
+type RecentFile = { name: string; meta: string; type: string; uri?: string; mime?: string; localId?: string };
 
 const recent: RecentFile[] = [
   { name: "학급교육과정.hwp", meta: "20:14", type: "HWP" },
@@ -28,12 +30,14 @@ const files: RecentFile[] = [
   { name: "학생 설문 결과.xlsx", meta: "142 KB", type: "XLS" },
   { name: "수업 사진.zip", meta: "41.5 MB", type: "ZIP" },
 ];
+function toRecentFile(document: LocalDocument): RecentFile { return { name: document.title, meta: `${document.pageCount} pages · ${(document.size / 1024 / 1024).toFixed(1)} MB`, type: "PDF", uri: document.uri, mime: document.mimeType, localId: document.id }; }
 
 export default function App() {
   const [route, setRoute] = useState<Route>("home");
   const [importedFiles, setImportedFiles] = useState<RecentFile[]>([]);
   const [paired, setPaired] = useState(false);
   const [relayState, setRelayState] = useState<RelayState>({ connected: false, desktopOnline: false });
+  const addLocalDocument = (document: LocalDocument) => setImportedFiles((current) => [toRecentFile(document), ...current.filter((item) => item.localId !== document.id)]);
   const relayClient = useRef<MobileRelayClient | null>(null);
   const activeTab: TabKey = route === "viewer" || route === "presentation" ? "documents" : route === "pairing" ? "settings" : route;
   const connectRelay = async () => {
@@ -54,13 +58,17 @@ export default function App() {
     return () => { mounted = false; relayClient.current?.disconnect(); };
   }, []);
 
+  useEffect(() => {
+    listLocalDocuments().then((documents) => setImportedFiles(documents.map(toRecentFile))).catch(() => undefined);
+  }, []);
+
   const openFile = async () => {
     const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
     if (result.canceled) return;
     const asset = result.assets[0];
     if (!asset) return;
     const extension = asset.name.split(".").pop()?.toUpperCase() ?? "FILE";
-    setImportedFiles((current) => [{ name: asset.name, meta: asset.size ? `${(asset.size / 1024 / 1024).toFixed(1)} MB` : "가져온 파일", type: extension.slice(0, 4) }, ...current]);
+    setImportedFiles((current) => [{ name: asset.name, meta: asset.size ? `${(asset.size / 1024 / 1024).toFixed(1)} MB` : "가져온 파일", type: extension.slice(0, 4), uri: asset.uri, mime: asset.mimeType ?? "application/octet-stream" }, ...current]);
     setRoute("documents");
   };
 
@@ -69,7 +77,7 @@ export default function App() {
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       {route === "home" && <Home onScan={() => setRoute("scan")} onOpen={openFile} onDocuments={() => setRoute("documents")} onPresentation={() => setRoute("presentation")} onTools={() => setRoute("tools")} />}
       {route === "documents" && <Documents imported={importedFiles} onOpen={(file) => setRoute(file.type === "PPT" ? "presentation" : "viewer")} onImport={openFile} />}
-      {route === "scan" && <Scanner onClose={() => setRoute("home")} />}
+      {route === "scan" && <ScannerScreen onClose={() => setRoute("home")} onSaved={(document) => { addLocalDocument(document); setRoute("documents"); }} />}
       {route === "tools" && <Tools />}
       {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} onPair={() => setRoute("pairing")} />}
       {route === "presentation" && <Presentation onBack={() => setRoute("documents")} />}
