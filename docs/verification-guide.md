@@ -169,19 +169,23 @@ Verify:
 
 Known reader constraint: the current native PDF renderer does not expose text extraction. PDF page jump/thumbnail navigation is implemented through on-demand page-image rendering, while PDF text search remains a backend limitation. HWP/HWPX and high-fidelity Office rendering remain a separate research/implementation track as specified.
 
-## 8. What was not verified in the development container
+## 8. Verification boundaries
 
 The repository-level JavaScript/TypeScript tests, mobile/relay type checks, desktop web build, Worker dry-run, and local transfer harness were verified before handoff.
 
-A temporary Rust stable toolchain was installed outside the repository for additional checking. Linux `cargo check --locked` reached Tauri native dependencies but stopped because the container lacks `libsoup-3.0` / `javascriptcoregtk-4.1`. A Windows GNU cross-target check reached the EasyDoc build script but stopped because the container lacks `x86_64-w64-mingw32-windres`. The repository therefore does **not** claim a completed native Tauri build in this container.
+In the earlier Linux development container, native checks stopped at unavailable platform libraries and cross-target tooling. Those results did not establish a native Windows build.
 
-The development container also did not provide:
-- Windows/MSVC/WebView2 runtime
-- Android/iOS native device execution
+The current Windows clone has now completed a native Tauri release build with Rust stable, MSVC, and WebView2. It produced both MSI and NSIS installers, and the release executable passed a startup smoke check without opening an HTTP listener. The bundle icon paths are explicit in `tauri.conf.json` and covered by a repository test.
+
+An Android release APK was also built from a clean Expo prebuild and installed on a physical SM-A205S running Android 11. Cold start, home/settings rendering, bottom navigation, safe-area handling, and Android back behavior were verified at 720×1560. A Hermes startup crash caused by `fast-png` requesting unsupported `latin1` decoding was fixed with a compatibility polyfill and regression test.
+
+The current environment still does not provide completed verification for:
+- iOS native device execution
+- physical document capture and the full scanner/edit/save flow
 - the actual school firewall/proxy/network
 
 External file drag-out from Scan Inbox into another desktop/browser application is also not wired in this handoff. Tauri v2 requires an additional native drag-out integration for that behavior; it should be added only with a Windows-native build/test loop rather than as an unverified dependency.
 
-Dependency audit at handoff: `npm audit --omit=dev` reports 28 moderate findings, 0 high, and 0 critical. The findings are concentrated in the current Expo dependency/tooling chain and include entries without a compatible automatic fix. Do not use a forced major dependency rewrite solely to clear the audit without re-validating the Expo/native-module compatibility matrix.
+Dependency audit in the current clone: `npm audit --omit=dev` reports 11 moderate findings, 0 high, and 0 critical. The findings are concentrated in the current Expo dependency/tooling chain and include entries without a compatible automatic fix. Do not use a forced major dependency rewrite solely to clear the audit without re-validating the Expo/native-module compatibility matrix.
 
 Those checks and constraints are intentionally explicit rather than being reported as completed validation.

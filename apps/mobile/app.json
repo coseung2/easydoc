@@ -2,6 +2,7 @@
   "expo": {
     "name": "EasyDoc",
     "slug": "easydoc",
+    "icon": "../desktop/src-tauri/icons/ios/AppIcon-512@2x.png",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",

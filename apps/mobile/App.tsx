@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View, Pressable } from "react-native";
+import { ScrollView, StatusBar, StyleSheet, Text, View, Pressable } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as DocumentPicker from "expo-document-picker";
 import { Feather } from "@expo/vector-icons";
@@ -118,18 +119,20 @@ export default function App() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      {route === "home" && <Home onScan={() => setRoute("scan")} onOpen={openFile} onDocuments={() => setRoute("documents")} onPresentation={() => { setSelectedFile(null); setRoute("presentation"); }} onTools={() => setRoute("tools")} />}
-      {route === "documents" && <Documents imported={importedFiles} pendingCount={pendingCount} transfer={relayState.transfer} onSend={queueFile} onOpen={(file) => { setSelectedFile(file); setRoute("viewer"); }} onImport={openFile} />}
-      {route === "scan" && <ScannerScreen onClose={() => setRoute("home")} onSaved={(document) => { addLocalDocument(document); setRoute("documents"); }} />}
-      {route === "tools" && <PdfToolsScreen onSaved={addLocalDocument} />}
-      {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} relayBaseUrl={relayBaseUrl} onPair={() => setRoute("pairing")} onRelayUrlChange={async (value) => { const next = await setStoredRelayBaseUrl(value); setRelayBaseUrl(next); relayClient.current?.disconnect(); if (paired) await connectRelay(next); }} />}
-      {route === "viewer" && <DocumentViewerScreen file={selectedFile} onBack={() => setRoute("documents")} onPresent={() => setRoute("presentation")} onSend={selectedFile?.uri ? () => queueFile(selectedFile) : undefined} />}
-      {route === "presentation" && <PresentationScreen file={selectedFile} onBack={() => setRoute(selectedFile ? "viewer" : "home")} />}
-      {route === "pairing" && <PairingScreen relayBaseUrl={relayBaseUrl} onBack={() => setRoute("settings")} onPaired={async () => { setPaired(true); await connectRelay(); setRoute("settings"); }} />}
-      {route !== "viewer" && route !== "presentation" && route !== "pairing" && <BottomNav active={activeTab} onChange={setRoute} />}
-    </SafeAreaView>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.safe} edges={["top", "right", "bottom", "left"]}>
+        <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+        {route === "home" && <Home onScan={() => setRoute("scan")} onOpen={openFile} onDocuments={() => setRoute("documents")} onPresentation={() => { setSelectedFile(null); setRoute("presentation"); }} onTools={() => setRoute("tools")} />}
+        {route === "documents" && <Documents imported={importedFiles} pendingCount={pendingCount} transfer={relayState.transfer} onSend={queueFile} onOpen={(file) => { setSelectedFile(file); setRoute("viewer"); }} onImport={openFile} />}
+        {route === "scan" && <ScannerScreen onClose={() => setRoute("home")} onSaved={(document) => { addLocalDocument(document); setRoute("documents"); }} />}
+        {route === "tools" && <PdfToolsScreen onSaved={addLocalDocument} />}
+        {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} relayBaseUrl={relayBaseUrl} onPair={() => setRoute("pairing")} onRelayUrlChange={async (value) => { const next = await setStoredRelayBaseUrl(value); setRelayBaseUrl(next); relayClient.current?.disconnect(); if (paired) await connectRelay(next); }} />}
+        {route === "viewer" && <DocumentViewerScreen file={selectedFile} onBack={() => setRoute("documents")} onPresent={() => setRoute("presentation")} onSend={selectedFile?.uri ? () => queueFile(selectedFile) : undefined} />}
+        {route === "presentation" && <PresentationScreen file={selectedFile} onBack={() => setRoute(selectedFile ? "viewer" : "home")} />}
+        {route === "pairing" && <PairingScreen relayBaseUrl={relayBaseUrl} onBack={() => setRoute("settings")} onPaired={async () => { setPaired(true); await connectRelay(); setRoute("settings"); }} />}
+        {route !== "viewer" && route !== "presentation" && route !== "pairing" && <BottomNav active={activeTab} onChange={setRoute} />}
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
