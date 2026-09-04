@@ -1,0 +1,10 @@
+{
+  "name": "easydoc",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "test": "node --test packages/protocol/test/*.test.ts",
+    "test:protocol": "node --test packages/protocol/test/*.test.ts"
+  }
+}
