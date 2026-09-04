@@ -1,0 +1,7 @@
+{
+  "name": "@easydoc/relay",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.test.ts" }
+}

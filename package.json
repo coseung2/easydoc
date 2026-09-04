@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "test": "node --test packages/protocol/test/*.test.ts",
-    "test:protocol": "node --test packages/protocol/test/*.test.ts"
+    "test": "node --test packages/protocol/test/*.test.ts apps/relay/test/*.test.ts",
+    "test:protocol": "node --test packages/protocol/test/*.test.ts",
+    "test:relay": "node --test apps/relay/test/*.test.ts"
   }
 }
