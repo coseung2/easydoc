@@ -17,7 +17,7 @@ Phone scan
 
 The relay is designed to **forward document bytes without permanently storing the document** during the normal online transfer path.
 
-## Planned applications
+## Applications
 
 ```text
 apps/
@@ -47,7 +47,7 @@ packages/
 - Configurable auto-save folder
 - Windows notifications
 - Open / reveal in folder / rename / print / delete
-- Drag-and-drop received files into browsers and other desktop apps
+- Drag-and-drop received files into browsers and other desktop apps (target; native Windows drag-out integration still pending)
 
 ### Transfer
 - QR-based device pairing
@@ -110,6 +110,33 @@ Current mobile UI concept:
 
 https://www.figma.com/design/5MfLOkXkbNevPnnwD0gQe4
 
-## Status
+## Current implementation
 
-Planning / architecture phase.
+The repository now contains an end-to-end MVP implementation path:
+
+- deployable Cloudflare Worker + Durable Object pairing/relay
+- QR pairing with short-lived single-use credentials
+- X25519-based shared-secret derivation and authenticated encrypted chunks
+- bounded/resumable mobile sender with persistent offline queue
+- Expo document scanner flow with page reorder/delete/retake/rotation and Color/Grayscale/B&W processing
+- local PDF generation/document library and early PDF tools
+- PDF/image/TXT viewing plus PDF presentation mode
+- Tauri Windows companion with tray/autostart, configurable receive folder/relay URL, resumable `.part` receiver, checksum verification, notification, and Scan Inbox actions
+
+Run the repository checks with:
+
+```bash
+npm ci
+npm run verify
+```
+
+For Cloudflare deployment, native app builds, and the real school-network acceptance matrix, see [`docs/verification-guide.md`](docs/verification-guide.md).
+
+### Deliberately separate/later tracks
+
+- high-fidelity HWP/HWPX and Office rendering
+- OCR/searchable PDF, signature, watermark, and password protection
+- optional encrypted R2 offline queue
+- desktop-initiated scan requests
+
+The development container cannot validate the Windows Rust binary, physical mobile native modules, or the school firewall/proxy. Those are real-environment handoff checks, not claimed as completed validation.

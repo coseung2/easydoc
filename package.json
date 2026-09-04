@@ -16,6 +16,11 @@
     "milestone0:file": "node scripts/milestone0-file-transfer.ts",
     "test:crypto": "node --test packages/crypto/test/*.test.ts",
     "test:pdf-tools": "node --test packages/pdf-tools/test/*.test.ts",
-    "test:image-processing": "node --test packages/image-processing/test/*.test.ts"
+    "test:image-processing": "node --test packages/image-processing/test/*.test.ts",
+    "typecheck:mobile": "tsc -p apps/mobile/tsconfig.json --noEmit",
+    "typecheck:relay": "tsc -p apps/relay/tsconfig.json --noEmit",
+    "build:desktop-ui": "npm --workspace @easydoc/desktop run build:vite",
+    "check:relay": "wrangler deploy --dry-run --config apps/relay/wrangler.toml",
+    "verify": "npm test && npm run typecheck:mobile && npm run typecheck:relay && npm run build:desktop-ui && npm run check:relay"
   }
 }
