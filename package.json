@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "node --test packages/protocol/test/*.test.ts packages/crypto/test/*.test.ts packages/pdf-tools/test/*.test.ts apps/relay/test/*.test.ts apps/desktop/test/*.test.ts apps/mobile/test/*.test.ts test/*.test.ts",
+    "test": "node --test packages/protocol/test/*.test.ts packages/crypto/test/*.test.ts packages/pdf-tools/test/*.test.ts packages/image-processing/test/*.test.ts apps/relay/test/*.test.ts apps/desktop/test/*.test.ts apps/mobile/test/*.test.ts test/*.test.ts",
     "test:protocol": "node --test packages/protocol/test/*.test.ts",
     "test:relay": "node --test apps/relay/test/*.test.ts",
     "test:desktop": "node --test apps/desktop/test/*.test.ts",
@@ -15,6 +15,7 @@
     "test:integration": "node --test test/*.test.ts",
     "milestone0:file": "node scripts/milestone0-file-transfer.ts",
     "test:crypto": "node --test packages/crypto/test/*.test.ts",
-    "test:pdf-tools": "node --test packages/pdf-tools/test/*.test.ts"
+    "test:pdf-tools": "node --test packages/pdf-tools/test/*.test.ts",
+    "test:image-processing": "node --test packages/image-processing/test/*.test.ts"
   }
 }
