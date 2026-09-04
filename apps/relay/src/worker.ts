@@ -128,13 +128,18 @@ export class PairingCoordinator {
       if (url.pathname === "/session") {
         const role = body.role;
         if (role !== "mobile" && role !== "desktop") throw new Error("pairing_invalid");
-        return json(await this.store.issueSessionToken(
-          String(body.roomId ?? ""),
+        const roomId = String(body.roomId ?? "");
+        const session = await this.store.issueSessionToken(
+          roomId,
           role as DeviceRole,
           String(body.deviceId ?? ""),
           String(body.bootstrapSecret ?? ""),
           this.env.SESSION_SIGNING_SECRET,
-        ));
+        );
+        const relationship = await this.store.getRelationship(roomId);
+        if (!relationship) throw new Error("pairing_invalid");
+        const peerPublicKey = role === "desktop" ? relationship.mobilePublicKey : relationship.desktopPublicKey;
+        return json({ ...session, peerPublicKey });
       }
 
       if (url.pathname === "/revoke") {

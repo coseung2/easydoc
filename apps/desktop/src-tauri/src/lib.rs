@@ -1,5 +1,10 @@
 use std::{path::{Path, PathBuf}, sync::{Arc, Mutex}, time::{SystemTime, UNIX_EPOCH}};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chacha20poly1305::{aead::{Aead, Payload}, KeyInit, XChaCha20Poly1305, XNonce};
 use futures_util::{SinkExt, StreamExt};
+use hkdf::Hkdf;
+use rand_core::OsRng;
+use x25519_dalek::{PublicKey, StaticSecret};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{Manager, State};
@@ -14,7 +19,7 @@ struct DesktopSettings { receive_dir: String, relay_base_url: String, paired: bo
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PairingState { device_id: String, room_id: String, desktop_secret: String }
+struct PairingState { device_id: String, room_id: String, public_key: String }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +46,7 @@ enum Control {
 }
 
 #[derive(Debug)]
-struct ReceiveState { transfer_id: Uuid, name: String, expected_size: u64, expected_sha256: String, chunk_size: u64, next_chunk: u32, written: u64, part_path: PathBuf, resume_path: PathBuf, file: File }
+struct ReceiveState { transfer_id: Uuid, name: String, expected_size: u64, expected_sha256: String, chunk_size: u64, next_chunk: u32, written: u64, part_path: PathBuf, resume_path: PathBuf, transfer_key: [u8;32], file: File }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +55,13 @@ struct ResumeMeta { transfer_id: Uuid, name: String, expected_size: u64, expecte
 struct AppState { settings: Mutex<DesktopSettings>, pairing: Mutex<Option<PairingState>>, inbox: Mutex<Vec<InboxItem>>, receiver_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>> }
 
 fn now_ms() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64 }
+fn credential_account(kind: &str, id: &str) -> String { format!("{}:{}", kind, id) }
+fn store_credential(kind: &str, id: &str, value: &str) -> Result<(), String> { keyring::Entry::new("EasyDoc", &credential_account(kind,id)).map_err(|e|e.to_string())?.set_password(value).map_err(|e|e.to_string()) }
+fn load_credential(kind: &str, id: &str) -> Result<String, String> { keyring::Entry::new("EasyDoc", &credential_account(kind,id)).map_err(|e|e.to_string())?.get_password().map_err(|e|e.to_string()) }
+fn generate_identity(device_id: &str) -> Result<String, String> { let secret=StaticSecret::random_from_rng(OsRng); let public=PublicKey::from(&secret); store_credential("device-private",device_id,&URL_SAFE_NO_PAD.encode(secret.to_bytes()))?; Ok(URL_SAFE_NO_PAD.encode(public.as_bytes())) }
+fn derive_transfer_key(device_id: &str, peer_public_key: &str, transfer_id: Uuid) -> Result<[u8;32], String> { let secret_bytes=URL_SAFE_NO_PAD.decode(load_credential("device-private",device_id)?).map_err(|_|"pairing_invalid".to_string())?; let secret_array:[u8;32]=secret_bytes.try_into().map_err(|_|"pairing_invalid".to_string())?; let peer_bytes=URL_SAFE_NO_PAD.decode(peer_public_key).map_err(|_|"pairing_invalid".to_string())?; let peer_array:[u8;32]=peer_bytes.try_into().map_err(|_|"pairing_invalid".to_string())?; let shared=StaticSecret::from(secret_array).diffie_hellman(&PublicKey::from(peer_array)); let salt=format!("easydoc-transfer:{}",transfer_id); let hk=Hkdf::<Sha256>::new(Some(salt.as_bytes()),shared.as_bytes()); let mut key=[0u8;32]; hk.expand(b"easydoc/x25519+xchacha20poly1305/v1",&mut key).map_err(|_|"pairing_invalid".to_string())?; Ok(key) }
+fn decrypt_chunk(key: &[u8;32], transfer_id: Uuid, chunk_index: u32, ciphertext: &[u8]) -> Result<Vec<u8>, String> { let cipher=XChaCha20Poly1305::new_from_slice(key).map_err(|_|"pairing_invalid".to_string())?; let mut nonce=[0u8;24]; nonce[20..].copy_from_slice(&chunk_index.to_be_bytes()); let aad=format!("easydoc:v1:{}:{}",transfer_id,chunk_index); cipher.decrypt(XNonce::from_slice(&nonce),Payload{msg:ciphertext,aad:aad.as_bytes()}).map_err(|_|"chunk_authentication_failed".to_string()) }
+
 fn app_dir() -> PathBuf { dirs::data_local_dir().unwrap_or_else(|| PathBuf::from(".")).join("EasyDoc") }
 fn default_receive_dir() -> PathBuf { dirs::document_dir().unwrap_or_else(|| PathBuf::from(".")).join("EasyDoc") }
 fn settings_path() -> PathBuf { app_dir().join("settings.json") }
@@ -87,21 +99,25 @@ async fn choose_receive_dir(app: tauri::AppHandle, state: State<'_, AppState>) -
 #[tauri::command]
 async fn create_pairing(state: State<'_, AppState>) -> Result<PairingView, String> {
   let settings = state.settings.lock().unwrap().clone();
-  let device_id = state.pairing.lock().unwrap().as_ref().map(|p|p.device_id.clone()).unwrap_or_else(|| format!("desktop_{}", Uuid::new_v4()));
-  let public_key = format!("desktop-key-{}", Uuid::new_v4());
+  let existing = state.pairing.lock().unwrap().clone();
+  let device_id = existing.as_ref().map(|p|p.device_id.clone()).unwrap_or_else(|| format!("desktop_{}", Uuid::new_v4()));
+  let public_key = match existing { Some(pairing) if load_credential("device-private",&device_id).is_ok() => pairing.public_key, _ => generate_identity(&device_id)? };
   let client = reqwest::Client::new();
   let issue: PairingIssue = client.post(format!("{}/pairing/issue", settings.relay_base_url.trim_end_matches('/'))).json(&serde_json::json!({"desktopId": device_id, "publicKey": public_key})).send().await.map_err(|e|e.to_string())?.error_for_status().map_err(|e|e.to_string())?.json().await.map_err(|e|e.to_string())?;
-  let pairing_state = PairingState { device_id: issue.pairing.desktop_id.clone(), room_id: issue.pairing.room_id.clone(), desktop_secret: issue.desktop_secret };
+  store_credential("pairing-bootstrap",&issue.pairing.room_id,&issue.desktop_secret)?;
+  let pairing_state = PairingState { device_id: issue.pairing.desktop_id.clone(), room_id: issue.pairing.room_id.clone(), public_key: issue.pairing.public_key.clone() };
   write_json(&pairing_path(), &pairing_state).await?;
   *state.pairing.lock().unwrap() = Some(pairing_state);
   { let mut current=state.settings.lock().unwrap(); current.paired=true; }
   Ok(PairingView { qr_payload: serde_json::to_string(&issue.pairing).map_err(|e|e.to_string())?, expires_at: issue.pairing.expires_at })
 }
 
-async fn session_token(settings: &DesktopSettings, pairing: &PairingState) -> Result<String, String> {
-  #[derive(Deserialize)] struct TokenResponse { token: String }
-  let response: TokenResponse = reqwest::Client::new().post(format!("{}/pairing/session", settings.relay_base_url.trim_end_matches('/'))).json(&serde_json::json!({"roomId":pairing.room_id,"role":"desktop","deviceId":pairing.device_id,"bootstrapSecret":pairing.desktop_secret})).send().await.map_err(|e|e.to_string())?.error_for_status().map_err(|e|e.to_string())?.json().await.map_err(|e|e.to_string())?;
-  Ok(response.token)
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionResponse { token: String, peer_public_key: String }
+async fn session_token(settings: &DesktopSettings, pairing: &PairingState) -> Result<SessionResponse, String> {
+  let bootstrap=load_credential("pairing-bootstrap",&pairing.room_id)?;
+  reqwest::Client::new().post(format!("{}/pairing/session", settings.relay_base_url.trim_end_matches('/'))).json(&serde_json::json!({"roomId":pairing.room_id,"role":"desktop","deviceId":pairing.device_id,"bootstrapSecret":bootstrap})).send().await.map_err(|e|e.to_string())?.error_for_status().map_err(|e|e.to_string())?.json().await.map_err(|e|e.to_string())
 }
 
 fn ws_url(base: &str, token: &str) -> Result<String, String> { let mut url=url::Url::parse(base).map_err(|e|e.to_string())?; url.set_scheme(if url.scheme()=="https"{"wss"}else{"ws"}).map_err(|_|"invalid relay scheme".to_string())?; url.set_path("/connect"); url.set_query(Some(&format!("token={}", token))); Ok(url.to_string()) }
@@ -122,7 +138,7 @@ async fn finalize(receive: ReceiveState, root: &Path) -> Result<(InboxItem, Stri
 }
 
 async fn receiver_loop(app: tauri::AppHandle, state: Arc<AppState>, settings: DesktopSettings, pairing: PairingState) -> Result<(), String> {
-  let token=session_token(&settings,&pairing).await?; let (socket,_)=connect_async(ws_url(&settings.relay_base_url,&token)?).await.map_err(|e|e.to_string())?; let (mut write,mut read)=socket.split();
+  let session=session_token(&settings,&pairing).await?; let peer_public_key=session.peer_public_key.clone(); let (socket,_)=connect_async(ws_url(&settings.relay_base_url,&session.token)?).await.map_err(|e|e.to_string())?; let (mut write,mut read)=socket.split();
   { state.settings.lock().unwrap().connected=true; }
   let root=PathBuf::from(&settings.receive_dir); fs::create_dir_all(&root).await.map_err(|e|e.to_string())?; let mut current: Option<ReceiveState>=None;
   while let Some(message)=read.next().await { match message.map_err(|e|e.to_string())? {
@@ -131,13 +147,14 @@ async fn receiver_loop(app: tauri::AppHandle, state: Arc<AppState>, settings: De
       let previous: Option<ResumeMeta>=read_json(&resume_path).await; let valid=previous.filter(|meta| meta.transfer_id==id && meta.expected_size==size && meta.expected_sha256==sha256 && meta.chunk_size==chunk_size);
       let (next_chunk,written)=valid.as_ref().map(|meta|(meta.next_chunk,meta.written)).unwrap_or((0,0));
       let file=OpenOptions::new().create(true).write(true).append(next_chunk>0).truncate(next_chunk==0).open(&part_path).await.map_err(|e|e.to_string())?;
-      current=Some(ReceiveState{transfer_id:id,name:name.clone(),expected_size:size,expected_sha256:sha256.clone(),chunk_size,next_chunk,written,part_path,resume_path:resume_path.clone(),file});
+      let transfer_key=derive_transfer_key(&pairing.device_id,&peer_public_key,id)?;
+      current=Some(ReceiveState{transfer_id:id,name:name.clone(),expected_size:size,expected_sha256:sha256.clone(),chunk_size,next_chunk,written,part_path,resume_path:resume_path.clone(),transfer_key,file});
       let meta=ResumeMeta{transfer_id:id,name,expected_size:size,expected_sha256:sha256,chunk_size,next_chunk,written}; write_json(&resume_path,&meta).await?;
       write.send(Message::Text(serde_json::json!({"type":"transfer:accept","transferId":transfer_id,"resumeFromChunk":next_chunk}).to_string().into())).await.map_err(|e|e.to_string())?;
     },
     Message::Binary(frame) => if let Some(receive)=current.as_mut() {
       if frame.len()<26 || frame[0]!=1 || frame[1]!=1 {continue;} let id=Uuid::from_slice(&frame[2..18]).map_err(|_|"transfer_not_found".to_string())?; let index=u32::from_be_bytes(frame[18..22].try_into().unwrap()); let length=u32::from_be_bytes(frame[22..26].try_into().unwrap()) as usize; if id!=receive.transfer_id || frame.len()!=26+length {continue;}
-      if index==receive.next_chunk { receive.file.write_all(&frame[26..]).await.map_err(|e|e.to_string())?; receive.written+=length as u64; receive.next_chunk+=1; if receive.next_chunk%8==0 {receive.file.sync_data().await.map_err(|e|e.to_string())?;} let meta=ResumeMeta{transfer_id:receive.transfer_id,name:receive.name.clone(),expected_size:receive.expected_size,expected_sha256:receive.expected_sha256.clone(),chunk_size:receive.chunk_size,next_chunk:receive.next_chunk,written:receive.written}; write_json(&receive.resume_path,&meta).await?; }
+      if index==receive.next_chunk { let plaintext=decrypt_chunk(&receive.transfer_key,receive.transfer_id,index,&frame[26..])?; if plaintext.len() as u64 > receive.chunk_size {return Err("invalid_payload_length".into());} receive.file.write_all(&plaintext).await.map_err(|e|e.to_string())?; receive.written+=plaintext.len() as u64; receive.next_chunk+=1; if receive.next_chunk%8==0 {receive.file.sync_data().await.map_err(|e|e.to_string())?;} let meta=ResumeMeta{transfer_id:receive.transfer_id,name:receive.name.clone(),expected_size:receive.expected_size,expected_sha256:receive.expected_sha256.clone(),chunk_size:receive.chunk_size,next_chunk:receive.next_chunk,written:receive.written}; write_json(&receive.resume_path,&meta).await?; }
       write.send(Message::Text(serde_json::json!({"type":"transfer:ack","transferId":receive.transfer_id,"receivedThroughChunk":receive.next_chunk as i64-1}).to_string().into())).await.map_err(|e|e.to_string())?;
       if receive.written==receive.expected_size { let done=current.take().unwrap(); let transfer_id=done.transfer_id; let (item,digest)=finalize(done,&root).await?; { let mut inbox=state.inbox.lock().unwrap(); inbox.insert(0,item.clone()); let snapshot=inbox.clone(); drop(inbox); write_json(&inbox_path(),&snapshot).await?; } write.send(Message::Text(serde_json::json!({"type":"transfer:complete","transferId":transfer_id,"bytes":item.size,"sha256":digest}).to_string().into())).await.map_err(|e|e.to_string())?; let _=tauri_plugin_notification::NotificationExt::notification(&app).builder().title("EasyDoc").body(format!("{} 수신 완료",item.filename)).show(); }
     },

@@ -2,6 +2,7 @@ import { encodeChunkFrame, type TransferStartMessage } from "../../../../package
 
 export type ChunkSource = { size: number; read(offset: number, length: number): Promise<Uint8Array> };
 export type FrameSender = (frame: Uint8Array) => void | Promise<void>;
+export type PayloadTransformer = (chunkIndex: number, payload: Uint8Array) => Uint8Array | Promise<Uint8Array>;
 export type SenderProgress = { sentBytes: number; acknowledgedBytes: number; inFlightBytes: number; nextChunk: number; complete: boolean };
 type InFlightChunk = { index: number; bytes: number };
 
@@ -10,6 +11,7 @@ export class TransferSender {
   private readonly source: ChunkSource;
   private readonly sendFrame: FrameSender;
   private readonly maxInFlightBytes: number;
+  private readonly transformPayload: PayloadTransformer;
   private nextChunk = 0;
   private acknowledgedThrough = -1;
   private sentBytes = 0;
@@ -17,10 +19,10 @@ export class TransferSender {
   private inFlight = new Map<number, InFlightChunk>();
   private pumping = false;
 
-  constructor(transfer: TransferStartMessage, source: ChunkSource, sendFrame: FrameSender, maxInFlightBytes = 8 * 1024 * 1024) {
+  constructor(transfer: TransferStartMessage, source: ChunkSource, sendFrame: FrameSender, maxInFlightBytes = 8 * 1024 * 1024, transformPayload: PayloadTransformer = (_index, payload) => payload) {
     if (source.size !== transfer.size) throw new Error("source_size_mismatch");
     if (maxInFlightBytes < transfer.chunkSize) throw new Error("window_smaller_than_chunk");
-    this.transfer = transfer; this.source = source; this.sendFrame = sendFrame; this.maxInFlightBytes = maxInFlightBytes;
+    this.transfer = transfer; this.source = source; this.sendFrame = sendFrame; this.maxInFlightBytes = maxInFlightBytes; this.transformPayload = transformPayload;
   }
 
   async start(resumeFromChunk = 0): Promise<SenderProgress> {
@@ -69,7 +71,8 @@ export class TransferSender {
         const payload = await this.source.read(offset, length);
         if (payload.byteLength !== length) throw new Error("source_short_read");
         const index = this.nextChunk;
-        await this.sendFrame(encodeChunkFrame({ transferId: this.transfer.transferId, chunkIndex: index, payload }));
+        const wirePayload = await this.transformPayload(index, payload);
+        await this.sendFrame(encodeChunkFrame({ transferId: this.transfer.transferId, chunkIndex: index, payload: wirePayload }));
         this.inFlight.set(index, { index, bytes: length });
         this.nextChunk += 1;
         this.sentBytes = Math.max(this.sentBytes, offset + length);

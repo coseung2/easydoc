@@ -46,3 +46,12 @@ test("source short reads fail instead of silently corrupting the transfer", asyn
   const sender = new TransferSender(transfer, shortSource, () => undefined, 8);
   await assert.rejects(() => sender.start(), /source_short_read/);
 });
+
+test("sender can transform plaintext chunks before wire framing", async () => {
+  const frames: Uint8Array[] = [];
+  const sender = new TransferSender(transfer, source, (frame) => frames.push(frame), 8, (index, payload) => Uint8Array.from(payload, (value) => value ^ (index + 1)));
+  await sender.start();
+  const first = decodeChunkFrame(frames[0]!);
+  assert.notDeepEqual(first.payload, bytes.slice(0, 4));
+  assert.deepEqual(Uint8Array.from(first.payload, (value) => value ^ 1), bytes.slice(0, 4));
+});

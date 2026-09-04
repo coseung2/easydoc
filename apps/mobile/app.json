@@ -19,7 +19,8 @@
         {
           "cameraPermission": "문서를 스캔하려면 카메라 접근 권한이 필요합니다."
         }
-      ]
+      ],
+      "expo-secure-store"
     ]
   }
 }

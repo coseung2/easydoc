@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
   cameraFrame: { height: 492, borderRadius: radius.lg, overflow: "hidden", backgroundColor: colors.camera, alignItems: "center", justifyContent: "center" },
   permission: { alignItems: "center", gap: 8 },
   permissionText: { color: "#CBD5E1", fontWeight: "700" },
-  scanDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15,23,42,0.18)" },
+  scanDim: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(15,23,42,0.18)" },
   documentGuide: { position: "absolute", top: 68, width: 264, height: 354 },
   corner: { position: "absolute", width: 38, height: 38, borderColor: "#FFFFFF" },
   cornerTop: { top: 0, borderTopWidth: 4 },
