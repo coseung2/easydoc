@@ -3,7 +3,30 @@
   "productName": "EasyDoc",
   "version": "0.1.0",
   "identifier": "app.easydoc.desktop",
-  "build": { "beforeDevCommand": "npm run dev:vite", "devUrl": "http://localhost:1420", "beforeBuildCommand": "npm run build:vite", "frontendDist": "../dist" },
-  "app": { "windows": [{ "title": "EasyDoc", "width": 900, "height": 650, "minWidth": 720, "minHeight": 520, "center": true }], "security": { "csp": null } },
-  "bundle": { "active": true, "targets": "all" }
+  "build": {
+    "beforeDevCommand": "npm run dev:vite",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build:vite",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "EasyDoc",
+        "width": 900,
+        "height": 650,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
 }

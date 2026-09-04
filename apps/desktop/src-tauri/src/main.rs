@@ -1,1 +1,3 @@
-fn main() { easydoc_desktop_lib::run(); }
+fn main() {
+    easydoc_desktop_lib::run();
+}
