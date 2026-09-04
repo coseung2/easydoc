@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
-use tokio::{fs::{self, File, OpenOptions}, io::AsyncWriteExt};
+use tokio::{fs::{self, File, OpenOptions}, io::{AsyncReadExt, AsyncWriteExt}};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use uuid::Uuid;
 
@@ -41,7 +41,11 @@ enum Control {
 }
 
 #[derive(Debug)]
-struct ReceiveState { transfer_id: Uuid, name: String, expected_size: u64, expected_sha256: String, chunk_size: u64, next_chunk: u32, written: u64, part_path: PathBuf, file: File }
+struct ReceiveState { transfer_id: Uuid, name: String, expected_size: u64, expected_sha256: String, chunk_size: u64, next_chunk: u32, written: u64, part_path: PathBuf, resume_path: PathBuf, file: File }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResumeMeta { transfer_id: Uuid, name: String, expected_size: u64, expected_sha256: String, chunk_size: u64, next_chunk: u32, written: u64 }
 
 struct AppState { settings: Mutex<DesktopSettings>, pairing: Mutex<Option<PairingState>>, inbox: Mutex<Vec<InboxItem>>, receiver_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>> }
 
@@ -104,14 +108,17 @@ fn ws_url(base: &str, token: &str) -> Result<String, String> { let mut url=url::
 
 async fn unique_destination(root: &Path, name: &str) -> PathBuf { let candidate=root.join(name); if fs::metadata(&candidate).await.is_err(){return candidate;} let path=Path::new(name); let stem=path.file_stem().and_then(|v|v.to_str()).unwrap_or("scan"); let ext=path.extension().and_then(|v|v.to_str()); for n in 1..10000 { let filename=match ext{Some(ext)=>format!("{} ({}).{}",stem,n,ext),None=>format!("{} ({})",stem,n)}; let next=root.join(filename); if fs::metadata(&next).await.is_err(){return next;} } root.join(format!("{}_{}",Uuid::new_v4(),name)) }
 
-async fn finalize(receive: ReceiveState, root: &Path) -> Result<InboxItem, String> {
+async fn finalize(receive: ReceiveState, root: &Path) -> Result<(InboxItem, String), String> {
   receive.file.sync_all().await.map_err(|e|e.to_string())?; drop(receive.file);
-  let bytes=fs::read(&receive.part_path).await.map_err(|e|e.to_string())?;
-  let digest=hex::encode(Sha256::digest(&bytes));
+  let mut source=File::open(&receive.part_path).await.map_err(|e|e.to_string())?;
+  let mut hasher=Sha256::new(); let mut buffer=vec![0u8; 1024*1024];
+  loop { let read=source.read(&mut buffer).await.map_err(|e|e.to_string())?; if read==0 {break;} hasher.update(&buffer[..read]); }
+  let digest=hex::encode(hasher.finalize());
   if digest != receive.expected_sha256 { return Err("checksum_mismatch".into()); }
   let final_path=unique_destination(root,&receive.name).await;
   fs::rename(&receive.part_path,&final_path).await.map_err(|e|e.to_string())?;
-  Ok(InboxItem { filename: final_path.file_name().unwrap_or_default().to_string_lossy().into_owned(), size: receive.expected_size, arrived_at: now_ms(), status: "completed".into(), path: final_path.to_string_lossy().into_owned() })
+  let _=fs::remove_file(&receive.resume_path).await;
+  Ok((InboxItem { filename: final_path.file_name().unwrap_or_default().to_string_lossy().into_owned(), size: receive.expected_size, arrived_at: now_ms(), status: "completed".into(), path: final_path.to_string_lossy().into_owned() }, digest))
 }
 
 async fn receiver_loop(app: tauri::AppHandle, state: Arc<AppState>, settings: DesktopSettings, pairing: PairingState) -> Result<(), String> {
@@ -119,8 +126,21 @@ async fn receiver_loop(app: tauri::AppHandle, state: Arc<AppState>, settings: De
   { state.settings.lock().unwrap().connected=true; }
   let root=PathBuf::from(&settings.receive_dir); fs::create_dir_all(&root).await.map_err(|e|e.to_string())?; let mut current: Option<ReceiveState>=None;
   while let Some(message)=read.next().await { match message.map_err(|e|e.to_string())? {
-    Message::Text(text) => if let Ok(Control::Start{transfer_id,name,size,sha256,chunk_size})=serde_json::from_str::<Control>(&text) { let id=Uuid::parse_str(&transfer_id).map_err(|_|"transfer_not_found".to_string())?; let part_path=root.join(format!("{}.part",name)); let file=OpenOptions::new().create(true).write(true).truncate(true).open(&part_path).await.map_err(|e|e.to_string())?; current=Some(ReceiveState{transfer_id:id,name,expected_size:size,expected_sha256:sha256,chunk_size,next_chunk:0,written:0,part_path,file}); write.send(Message::Text(serde_json::json!({"type":"transfer:accept","transferId":transfer_id,"resumeFromChunk":0}).to_string().into())).await.map_err(|e|e.to_string())?; },
-    Message::Binary(frame) => if let Some(receive)=current.as_mut() { if frame.len()<26 || frame[0]!=1 || frame[1]!=1 {continue;} let id=Uuid::from_slice(&frame[2..18]).map_err(|_|"transfer_not_found".to_string())?; let index=u32::from_be_bytes(frame[18..22].try_into().unwrap()); let length=u32::from_be_bytes(frame[22..26].try_into().unwrap()) as usize; if id!=receive.transfer_id || frame.len()!=26+length {continue;} if index==receive.next_chunk { receive.file.write_all(&frame[26..]).await.map_err(|e|e.to_string())?; receive.written+=length as u64; receive.next_chunk+=1; } write.send(Message::Text(serde_json::json!({"type":"transfer:ack","transferId":receive.transfer_id,"receivedThroughChunk":receive.next_chunk as i64-1}).to_string().into())).await.map_err(|e|e.to_string())?; if receive.written==receive.expected_size { let done=current.take().unwrap(); let transfer_id=done.transfer_id; let item=finalize(done,&root).await?; { let mut inbox=state.inbox.lock().unwrap(); inbox.insert(0,item.clone()); let snapshot=inbox.clone(); drop(inbox); write_json(&inbox_path(),&snapshot).await?; } write.send(Message::Text(serde_json::json!({"type":"transfer:complete","transferId":transfer_id,"bytes":item.size,"sha256":"verified"}).to_string().into())).await.map_err(|e|e.to_string())?; let _=tauri_plugin_notification::NotificationExt::notification(&app).builder().title("EasyDoc").body(format!("{} 수신 완료",item.filename)).show(); } },
+    Message::Text(text) => if let Ok(Control::Start{transfer_id,name,size,sha256,chunk_size})=serde_json::from_str::<Control>(&text) {
+      let id=Uuid::parse_str(&transfer_id).map_err(|_|"transfer_not_found".to_string())?; let part_path=root.join(format!("{}.part",name)); let resume_path=root.join(format!("{}.part.json",name));
+      let previous: Option<ResumeMeta>=read_json(&resume_path).await; let valid=previous.filter(|meta| meta.transfer_id==id && meta.expected_size==size && meta.expected_sha256==sha256 && meta.chunk_size==chunk_size);
+      let (next_chunk,written)=valid.as_ref().map(|meta|(meta.next_chunk,meta.written)).unwrap_or((0,0));
+      let file=OpenOptions::new().create(true).write(true).append(next_chunk>0).truncate(next_chunk==0).open(&part_path).await.map_err(|e|e.to_string())?;
+      current=Some(ReceiveState{transfer_id:id,name:name.clone(),expected_size:size,expected_sha256:sha256.clone(),chunk_size,next_chunk,written,part_path,resume_path:resume_path.clone(),file});
+      let meta=ResumeMeta{transfer_id:id,name,expected_size:size,expected_sha256:sha256,chunk_size,next_chunk,written}; write_json(&resume_path,&meta).await?;
+      write.send(Message::Text(serde_json::json!({"type":"transfer:accept","transferId":transfer_id,"resumeFromChunk":next_chunk}).to_string().into())).await.map_err(|e|e.to_string())?;
+    },
+    Message::Binary(frame) => if let Some(receive)=current.as_mut() {
+      if frame.len()<26 || frame[0]!=1 || frame[1]!=1 {continue;} let id=Uuid::from_slice(&frame[2..18]).map_err(|_|"transfer_not_found".to_string())?; let index=u32::from_be_bytes(frame[18..22].try_into().unwrap()); let length=u32::from_be_bytes(frame[22..26].try_into().unwrap()) as usize; if id!=receive.transfer_id || frame.len()!=26+length {continue;}
+      if index==receive.next_chunk { receive.file.write_all(&frame[26..]).await.map_err(|e|e.to_string())?; receive.written+=length as u64; receive.next_chunk+=1; if receive.next_chunk%8==0 {receive.file.sync_data().await.map_err(|e|e.to_string())?;} let meta=ResumeMeta{transfer_id:receive.transfer_id,name:receive.name.clone(),expected_size:receive.expected_size,expected_sha256:receive.expected_sha256.clone(),chunk_size:receive.chunk_size,next_chunk:receive.next_chunk,written:receive.written}; write_json(&receive.resume_path,&meta).await?; }
+      write.send(Message::Text(serde_json::json!({"type":"transfer:ack","transferId":receive.transfer_id,"receivedThroughChunk":receive.next_chunk as i64-1}).to_string().into())).await.map_err(|e|e.to_string())?;
+      if receive.written==receive.expected_size { let done=current.take().unwrap(); let transfer_id=done.transfer_id; let (item,digest)=finalize(done,&root).await?; { let mut inbox=state.inbox.lock().unwrap(); inbox.insert(0,item.clone()); let snapshot=inbox.clone(); drop(inbox); write_json(&inbox_path(),&snapshot).await?; } write.send(Message::Text(serde_json::json!({"type":"transfer:complete","transferId":transfer_id,"bytes":item.size,"sha256":digest}).to_string().into())).await.map_err(|e|e.to_string())?; let _=tauri_plugin_notification::NotificationExt::notification(&app).builder().title("EasyDoc").body(format!("{} 수신 완료",item.filename)).show(); }
+    },
     Message::Close(_) => break,
     _ => {}
   }}
