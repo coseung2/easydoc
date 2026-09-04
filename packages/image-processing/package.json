@@ -1,0 +1,12 @@
+{
+  "name": "@easydoc/image-processing",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": { "test": "node --test test/*.test.ts" },
+  "dependencies": {
+    "fast-png": "^8.0.0",
+    "jpeg-js": "^0.4.4"
+  }
+}
