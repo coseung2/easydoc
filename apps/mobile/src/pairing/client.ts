@@ -4,6 +4,7 @@ import { parsePairingPayload, type PairingPayload } from "../../../../packages/p
 
 const IDENTITY_KEY = "easydoc.device.identity.v1";
 const PAIRING_KEY = "easydoc.pairing.v1";
+const RELAY_URL_KEY = "easydoc.relay.url.v1";
 
 export type MobileIdentity = DeviceKeyPair & { deviceId: string };
 export type StoredMobilePairing = {
@@ -19,6 +20,19 @@ async function postJson<T>(url: string, value: unknown, headers: Record<string, 
   const body = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? `relay_http_${response.status}`);
   return body;
+}
+
+
+export async function getStoredRelayBaseUrl(fallback = ""): Promise<string> {
+  return (await SecureStore.getItemAsync(RELAY_URL_KEY)) ?? fallback;
+}
+
+export async function setStoredRelayBaseUrl(value: string): Promise<string> {
+  const trimmed = value.trim().replace(/\/$/u, "");
+  const parsed = new URL(trimmed);
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("invalid_relay_url");
+  await SecureStore.setItemAsync(RELAY_URL_KEY, trimmed);
+  return trimmed;
 }
 
 export async function getOrCreateIdentity(): Promise<MobileIdentity> {

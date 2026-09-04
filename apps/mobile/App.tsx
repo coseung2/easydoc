@@ -11,12 +11,12 @@ import { ScannerScreen } from "./src/scanner/scanner-screen";
 import { listLocalDocuments, importLocalFile, type LocalDocument } from "./src/documents/store";
 import { DocumentViewerScreen, PresentationScreen } from "./src/ui/document-viewer";
 import { PdfToolsScreen } from "./src/ui/pdf-tools-screen";
-import { getStoredPairing } from "./src/pairing/client";
+import { getStoredPairing, getStoredRelayBaseUrl, setStoredRelayBaseUrl } from "./src/pairing/client";
 import { countPendingTransfers, enqueueTransfer, listPendingTransfers, updateTransferStatus } from "./src/transfer/queue";
 import { MobileRelayClient, type RelayState } from "./src/transfer/client";
 
 type Route = TabKey | "viewer" | "presentation" | "pairing";
-const RELAY_BASE_URL = globalThis.process?.env?.EXPO_PUBLIC_RELAY_URL ?? "";
+const DEFAULT_RELAY_BASE_URL = globalThis.process?.env?.EXPO_PUBLIC_RELAY_URL ?? "";
 type Filter = "자동" | "컬러" | "회색조" | "흑백";
 type RecentFile = { name: string; meta: string; type: string; uri?: string; mime?: string; localId?: string };
 
@@ -39,6 +39,7 @@ export default function App() {
   const [route, setRoute] = useState<Route>("home");
   const [importedFiles, setImportedFiles] = useState<RecentFile[]>([]);
   const [paired, setPaired] = useState(false);
+  const [relayBaseUrl, setRelayBaseUrl] = useState(DEFAULT_RELAY_BASE_URL);
   const [relayState, setRelayState] = useState<RelayState>({ connected: false, desktopOnline: false });
   const addLocalDocument = (document: LocalDocument) => setImportedFiles((current) => [toRecentFile(document), ...current.filter((item) => item.localId !== document.id)]);
   const [selectedFile, setSelectedFile] = useState<RecentFile | null>(null);
@@ -46,10 +47,10 @@ export default function App() {
   const flushingQueue = useRef(false);
   const relayClient = useRef<MobileRelayClient | null>(null);
   const activeTab: TabKey = route === "viewer" || route === "presentation" ? "documents" : route === "pairing" ? "settings" : route;
-  const connectRelay = async () => {
-    if (!RELAY_BASE_URL) return;
+  const connectRelay = async (overrideUrl = relayBaseUrl) => {
+    if (!overrideUrl) return;
     relayClient.current?.disconnect();
-    const client = new MobileRelayClient(RELAY_BASE_URL, setRelayState);
+    const client = new MobileRelayClient(overrideUrl, setRelayState);
     relayClient.current = client;
     await client.connect();
   };
@@ -82,10 +83,12 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
-    getStoredPairing().then((stored) => {
-      if (!mounted || !stored) return;
+    Promise.all([getStoredPairing(), getStoredRelayBaseUrl(DEFAULT_RELAY_BASE_URL)]).then(([stored, url]) => {
+      if (!mounted) return;
+      setRelayBaseUrl(url);
+      if (!stored) return;
       setPaired(true);
-      connectRelay().catch(() => undefined);
+      connectRelay(url).catch(() => undefined);
     }).catch(() => undefined);
     return () => { mounted = false; relayClient.current?.disconnect(); };
   }, []);
@@ -96,11 +99,11 @@ export default function App() {
 
   useEffect(() => { refreshQueueCount().catch(() => undefined); }, []);
   useEffect(() => {
-    if (!paired || relayState.connected || !RELAY_BASE_URL) return;
+    if (!paired || relayState.connected || !relayBaseUrl) return;
     connectRelay().catch(() => undefined);
     const timer = setInterval(() => connectRelay().catch(() => undefined), 3000);
     return () => clearInterval(timer);
-  }, [paired, relayState.connected]);
+  }, [paired, relayState.connected, relayBaseUrl]);
   useEffect(() => { if (relayState.connected && relayState.desktopOnline) flushQueue().catch(() => undefined); }, [relayState.connected, relayState.desktopOnline]);
 
 
@@ -121,10 +124,10 @@ export default function App() {
       {route === "documents" && <Documents imported={importedFiles} pendingCount={pendingCount} transfer={relayState.transfer} onSend={queueFile} onOpen={(file) => { setSelectedFile(file); setRoute("viewer"); }} onImport={openFile} />}
       {route === "scan" && <ScannerScreen onClose={() => setRoute("home")} onSaved={(document) => { addLocalDocument(document); setRoute("documents"); }} />}
       {route === "tools" && <PdfToolsScreen onSaved={addLocalDocument} />}
-      {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} onPair={() => setRoute("pairing")} />}
+      {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} relayBaseUrl={relayBaseUrl} onPair={() => setRoute("pairing")} onRelayUrlChange={async (value) => { const next = await setStoredRelayBaseUrl(value); setRelayBaseUrl(next); relayClient.current?.disconnect(); if (paired) await connectRelay(next); }} />}
       {route === "viewer" && <DocumentViewerScreen file={selectedFile} onBack={() => setRoute("documents")} onPresent={() => setRoute("presentation")} onSend={selectedFile?.uri ? () => queueFile(selectedFile) : undefined} />}
       {route === "presentation" && <PresentationScreen file={selectedFile} onBack={() => setRoute(selectedFile ? "viewer" : "home")} />}
-      {route === "pairing" && <PairingScreen relayBaseUrl={RELAY_BASE_URL} onBack={() => setRoute("settings")} onPaired={async () => { setPaired(true); await connectRelay(); setRoute("settings"); }} />}
+      {route === "pairing" && <PairingScreen relayBaseUrl={relayBaseUrl} onBack={() => setRoute("settings")} onPaired={async () => { setPaired(true); await connectRelay(); setRoute("settings"); }} />}
       {route !== "viewer" && route !== "presentation" && route !== "pairing" && <BottomNav active={activeTab} onChange={setRoute} />}
     </SafeAreaView>
   );
