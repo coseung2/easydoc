@@ -4,9 +4,10 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "test": "node --test packages/protocol/test/*.test.ts apps/relay/test/*.test.ts apps/desktop/test/*.test.ts",
+    "test": "node --test packages/protocol/test/*.test.ts apps/relay/test/*.test.ts apps/desktop/test/*.test.ts apps/mobile/test/*.test.ts",
     "test:protocol": "node --test packages/protocol/test/*.test.ts",
     "test:relay": "node --test apps/relay/test/*.test.ts",
-    "test:desktop": "node --test apps/desktop/test/*.test.ts"
+    "test:desktop": "node --test apps/desktop/test/*.test.ts",
+    "test:mobile": "node --test apps/mobile/test/*.test.ts"
   }
 }
