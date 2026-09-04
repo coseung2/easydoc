@@ -37,6 +37,7 @@ export class IncomingTransfer {
   readonly partPath: string;
   private metadata: ReceiveMetadata;
   private handle: FileHandle;
+  private closed = false;
 
   private constructor(rootDir: string, metadataPath: string, partPath: string, metadata: ReceiveMetadata, handle: FileHandle) {
     this.rootDir = rootDir; this.metadataPath = metadataPath; this.partPath = partPath; this.metadata = metadata; this.handle = handle;
@@ -70,6 +71,7 @@ export class IncomingTransfer {
   get bytesWritten(): number { return this.metadata.bytesWritten; }
 
   async writeChunk(index: number, payload: Uint8Array): Promise<ReceiveProgress> {
+    if (this.closed) throw new Error("transfer_interrupted");
     if (index < this.metadata.nextChunk) return { receivedThroughChunk: this.receivedThroughChunk, bytesWritten: this.bytesWritten, complete: false };
     if (index !== this.metadata.nextChunk) throw new Error("unexpected_chunk");
     if (payload.byteLength > this.metadata.transfer.chunkSize) throw new Error("chunk_too_large");
@@ -83,11 +85,22 @@ export class IncomingTransfer {
     return { receivedThroughChunk: this.receivedThroughChunk, bytesWritten: this.bytesWritten, complete: false };
   }
 
-  async cancel(removePartial = true): Promise<void> {
-    await this.handle.close(); await rm(this.metadataPath, { force: true }); if (removePartial) await rm(this.partPath, { force: true });
+  async interrupt(): Promise<void> {
+    if (this.closed) return;
+    await this.handle.sync();
+    await this.handle.close();
+    this.closed = true;
   }
+
+  async cancel(removePartial = true): Promise<void> {
+    if (!this.closed) await this.handle.close();
+    this.closed = true;
+    await rm(this.metadataPath, { force: true });
+    if (removePartial) await rm(this.partPath, { force: true });
+  }
+
   private async finalize(): Promise<ReceiveProgress> {
-    await this.handle.sync(); await this.handle.close();
+    await this.handle.sync(); await this.handle.close(); this.closed = true;
     if (await sha256File(this.partPath) !== this.metadata.transfer.sha256.toLowerCase()) throw new Error("checksum_mismatch");
     const finalPath = path.join(this.rootDir, this.metadata.finalName); await rename(this.partPath, finalPath); await rm(this.metadataPath, { force: true });
     return { receivedThroughChunk: this.receivedThroughChunk, bytesWritten: this.bytesWritten, complete: true, finalPath };

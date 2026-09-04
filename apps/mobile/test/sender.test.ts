@@ -35,6 +35,12 @@ test("sender completes only after receiver acknowledges the final chunk", async 
   const done = await sender.acknowledge(4); assert.equal(done.complete, true); assert.equal(done.acknowledgedBytes, bytes.byteLength);
 });
 
+test("sender rejects acknowledgements for chunks it has not sent", async () => {
+  const sender = new TransferSender(transfer, source, () => undefined, 8);
+  await sender.start();
+  await assert.rejects(() => sender.acknowledge(2), /ack_beyond_sent/);
+});
+
 test("source short reads fail instead of silently corrupting the transfer", async () => {
   const shortSource: ChunkSource = { size: bytes.byteLength, async read(_offset, length) { return new Uint8Array(Math.max(0, length - 1)); } };
   const sender = new TransferSender(transfer, shortSource, () => undefined, 8);

@@ -26,9 +26,11 @@ test("streams Korean-named files to .part and atomically finalizes after checksu
   assert.deepEqual(await readFile(done.finalPath!), Buffer.from(bytes));
 }));
 
-test("resume survives receiver recreation and duplicate chunks are idempotent", () => withTempDir(async (dir) => {
+test("resume survives explicit interruption and duplicate chunks are idempotent", () => withTempDir(async (dir) => {
   const bytes = new TextEncoder().encode("abcdefgh"); const start = startFor("scan.pdf", bytes, 4);
   const first = await IncomingTransfer.create(start, dir, async () => 1_000_000); await first.writeChunk(0, bytes.subarray(0, 4));
+  await first.interrupt();
+  await assert.rejects(() => first.writeChunk(1, bytes.subarray(4)), /transfer_interrupted/);
   const resumed = await IncomingTransfer.resume(TRANSFER_ID, dir); assert.equal(resumed.resumeFromChunk, 1);
   const duplicate = await resumed.writeChunk(0, bytes.subarray(0, 4)); assert.equal(duplicate.receivedThroughChunk, 0);
   const done = await resumed.writeChunk(1, bytes.subarray(4)); assert.equal(done.complete, true);

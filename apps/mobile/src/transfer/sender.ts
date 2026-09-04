@@ -24,7 +24,8 @@ export class TransferSender {
   }
 
   async start(resumeFromChunk = 0): Promise<SenderProgress> {
-    if (!Number.isSafeInteger(resumeFromChunk) || resumeFromChunk < 0) throw new Error("invalid_resume_position");
+    const totalChunks = Math.ceil(this.transfer.size / this.transfer.chunkSize);
+    if (!Number.isSafeInteger(resumeFromChunk) || resumeFromChunk < 0 || resumeFromChunk > totalChunks) throw new Error("invalid_resume_position");
     this.nextChunk = resumeFromChunk;
     this.acknowledgedThrough = resumeFromChunk - 1;
     this.sentBytes = Math.min(resumeFromChunk * this.transfer.chunkSize, this.transfer.size);
@@ -37,6 +38,7 @@ export class TransferSender {
   async acknowledge(receivedThroughChunk: number): Promise<SenderProgress> {
     if (!Number.isSafeInteger(receivedThroughChunk) || receivedThroughChunk < -1) throw new Error("invalid_ack");
     if (receivedThroughChunk < this.acknowledgedThrough) return this.progress();
+    if (receivedThroughChunk >= this.nextChunk) throw new Error("ack_beyond_sent");
     this.acknowledgedThrough = receivedThroughChunk;
     for (const [index] of this.inFlight) if (index <= receivedThroughChunk) this.inFlight.delete(index);
     this.acknowledgedBytes = Math.min((receivedThroughChunk + 1) * this.transfer.chunkSize, this.transfer.size);
