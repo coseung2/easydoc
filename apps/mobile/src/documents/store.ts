@@ -92,3 +92,28 @@ export async function createScannedPdf(pageUris: string[], title = `스캔_${new
   );
   return document;
 }
+
+export async function importLocalFile(input: { uri: string; name: string; mimeType?: string | null }): Promise<LocalDocument> {
+  const id = crypto.randomUUID();
+  const safeName = input.name.replace(/[\\/]/gu, "_") || `file_${id}`;
+  const documentDirectory = new Directory(Paths.document, "EasyDoc", "imports", id);
+  documentDirectory.create({ intermediates: true, idempotent: true });
+  const source = new File(input.uri);
+  const target = new File(documentDirectory, safeName);
+  source.copy(target);
+  const document: LocalDocument = {
+    id,
+    title: safeName,
+    uri: target.uri,
+    pageCount: 0,
+    size: target.size,
+    mimeType: input.mimeType || target.type || "application/octet-stream",
+    createdAt: Date.now(),
+  };
+  const db = await database();
+  await db.runAsync(
+    "INSERT INTO documents (id, title, uri, page_count, size, mime_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    document.id, document.title, document.uri, document.pageCount, document.size, document.mimeType, document.createdAt,
+  );
+  return document;
+}

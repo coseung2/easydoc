@@ -34,3 +34,12 @@ test("reconnecting the same role replaces the stale socket", () => {
   room.attach(credential("desktop", "school-pc"), first); room.attach(credential("desktop", "school-pc"), second);
   assert.equal(first.closed, true);
 });
+
+test("a newly attached endpoint receives the already-online peer presence", () => {
+  const room = new RelayRoom(); const desktop = new FakeSocket(); const mobile = new FakeSocket();
+  room.attach(credential("desktop", "school-pc"), desktop);
+  room.attach(credential("mobile", "phone"), mobile);
+  const presence = mobile.sent.map(String).map((value) => { try { return JSON.parse(value); } catch { return null; } }).find((value) => value?.role === "desktop");
+  assert.equal(presence?.online, true);
+  assert.equal(presence?.deviceId, "school-pc");
+});

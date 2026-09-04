@@ -13,6 +13,9 @@ export class RelayRoom {
     if (previous) previous.socket.close(4001, "replaced");
     this.sessions.set(credential.role, { ...credential, socket });
     this.broadcastPresence(credential.role, credential.deviceId, true);
+    const peerRole: DeviceRole = credential.role === "mobile" ? "desktop" : "mobile";
+    const peer = this.sessions.get(peerRole);
+    if (peer) socket.send(JSON.stringify({ type: "presence:update", role: peer.role, deviceId: peer.deviceId, online: true }));
   }
 
   detach(role: DeviceRole, socket: RelaySocket): void {

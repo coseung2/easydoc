@@ -25,16 +25,16 @@ export class MobileRelayClient {
       const socket = new WebSocket(url.toString()); socket.binaryType = "arraybuffer";
       socket.onopen = () => { this.socket = socket; this.update({ connected: true }); resolve(); };
       socket.onerror = () => reject(new Error("relay_unavailable"));
-      socket.onclose = () => { if (this.socket === socket) this.socket = null; this.update({ connected: false, desktopOnline: false }); };
+      socket.onclose = () => { if (this.socket === socket) this.socket = null; this.failActive(new Error("relay_unavailable")); this.update({ connected: false, desktopOnline: false }); };
       socket.onmessage = (event) => { if (typeof event.data === "string") this.handleControl(event.data).catch((error) => this.failActive(error)); };
     });
   }
 
   disconnect(): void { this.socket?.close(); this.socket = null; this.update({ connected: false, desktopOnline: false }); }
 
-  async sendFile(input: { uri: string; name: string; mime: string }): Promise<void> {
+  async sendFile(input: { uri: string; name: string; mime: string; transferId?: string }): Promise<void> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) throw new Error("relay_unavailable"); if (!this.pairing) throw new Error("pairing_invalid"); if (this.active) throw new Error("transfer_in_progress");
-    const identity = await getOrCreateIdentity(); const source = new ExpoFileChunkSource(input.uri); const transferId = crypto.randomUUID(); const key = deriveTransferKey(identity.secretKey, this.pairing.desktopPublicKey, transferId);
+    const identity = await getOrCreateIdentity(); const source = new ExpoFileChunkSource(input.uri); const transferId = input.transferId ?? crypto.randomUUID(); const key = deriveTransferKey(identity.secretKey, this.pairing.desktopPublicKey, transferId);
     const meta: TransferStartMessage = { type: "transfer:start", transferId, destinationDeviceId: this.pairing.desktopId, name: input.name, size: source.size, mime: input.mime, sha256: sha256File(input.uri), chunkSize: DEFAULT_CHUNK_SIZE };
     await new Promise<void>((resolve, reject) => {
       const sender = new TransferSender(meta, source, (frame) => this.socket!.send(frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength)), 8 * 1024 * 1024, (index, payload) => encryptChunk(key, transferId, index, payload));
@@ -51,7 +51,7 @@ export class MobileRelayClient {
     if (message.type === "transfer:ack") { const progress = await active.sender.acknowledge(message.receivedThroughChunk); this.updateTransfer(progress); return; }
     if (message.type === "transfer:resume") { const progress = await active.sender.resume(message.receivedThroughChunk); this.updateTransfer(progress); return; }
     if (message.type === "transfer:reject") { throw new Error(message.reason); }
-    if (message.type === "transfer:complete") { active.source.close(); active.resolve(); this.active = null; this.update({ transfer: undefined }); }
+    if (message.type === "transfer:complete") { if (message.bytes !== active.meta.size || message.sha256 !== active.meta.sha256) throw new Error("checksum_mismatch"); active.source.close(); active.resolve(); this.active = null; this.update({ transfer: undefined }); }
   }
 
   private updateTransfer(progress: SenderProgress) { const active=this.active; if (active) this.update({ transfer: { ...progress, transferId: active.meta.transferId, filename: active.meta.name } }); }

@@ -8,8 +8,9 @@ import { colors, radius } from "./src/ui/theme";
 import { PairingScreen } from "./src/ui/pairing-screen";
 import { SettingsScreen } from "./src/ui/settings-screen";
 import { ScannerScreen } from "./src/scanner/scanner-screen";
-import { listLocalDocuments, type LocalDocument } from "./src/documents/store";
+import { listLocalDocuments, importLocalFile, type LocalDocument } from "./src/documents/store";
 import { getStoredPairing } from "./src/pairing/client";
+import { countPendingTransfers, enqueueTransfer, listPendingTransfers, updateTransferStatus } from "./src/transfer/queue";
 import { MobileRelayClient, type RelayState } from "./src/transfer/client";
 
 type Route = TabKey | "viewer" | "presentation" | "pairing";
@@ -30,7 +31,7 @@ const files: RecentFile[] = [
   { name: "학생 설문 결과.xlsx", meta: "142 KB", type: "XLS" },
   { name: "수업 사진.zip", meta: "41.5 MB", type: "ZIP" },
 ];
-function toRecentFile(document: LocalDocument): RecentFile { return { name: document.title, meta: `${document.pageCount} pages · ${(document.size / 1024 / 1024).toFixed(1)} MB`, type: "PDF", uri: document.uri, mime: document.mimeType, localId: document.id }; }
+function toRecentFile(document: LocalDocument): RecentFile { const extension = document.title.split(".").pop()?.toUpperCase() ?? "FILE"; return { name: document.title, meta: `${document.pageCount > 0 ? `${document.pageCount} pages · ` : ""}${(document.size / 1024 / 1024).toFixed(1)} MB`, type: extension.slice(0, 4), uri: document.uri, mime: document.mimeType, localId: document.id }; }
 
 export default function App() {
   const [route, setRoute] = useState<Route>("home");
@@ -38,6 +39,8 @@ export default function App() {
   const [paired, setPaired] = useState(false);
   const [relayState, setRelayState] = useState<RelayState>({ connected: false, desktopOnline: false });
   const addLocalDocument = (document: LocalDocument) => setImportedFiles((current) => [toRecentFile(document), ...current.filter((item) => item.localId !== document.id)]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const flushingQueue = useRef(false);
   const relayClient = useRef<MobileRelayClient | null>(null);
   const activeTab: TabKey = route === "viewer" || route === "presentation" ? "documents" : route === "pairing" ? "settings" : route;
   const connectRelay = async () => {
@@ -46,6 +49,32 @@ export default function App() {
     const client = new MobileRelayClient(RELAY_BASE_URL, setRelayState);
     relayClient.current = client;
     await client.connect();
+  };
+
+  const refreshQueueCount = async () => setPendingCount(await countPendingTransfers());
+  const flushQueue = async () => {
+    if (flushingQueue.current || !relayClient.current || !relayState.connected || !relayState.desktopOnline) return;
+    flushingQueue.current = true;
+    try {
+      const pending = await listPendingTransfers();
+      for (const item of pending) {
+        try {
+          await updateTransferStatus(item.id, "transferring");
+          await relayClient.current.sendFile({ uri: item.uri, name: item.name, mime: item.mime, transferId: item.id });
+          await updateTransferStatus(item.id, "completed");
+        } catch (error) {
+          await updateTransferStatus(item.id, "failed", error instanceof Error ? error.message : "transfer_failed");
+          break;
+        }
+      }
+    } finally { flushingQueue.current = false; await refreshQueueCount(); }
+  };
+  const queueFile = async (file: RecentFile) => {
+    if (!file.uri) return;
+    if (!paired) { setRoute("pairing"); return; }
+    await enqueueTransfer({ uri: file.uri, name: file.name, mime: file.mime ?? "application/octet-stream" });
+    await refreshQueueCount();
+    await flushQueue();
   };
 
   useEffect(() => {
@@ -62,13 +91,23 @@ export default function App() {
     listLocalDocuments().then((documents) => setImportedFiles(documents.map(toRecentFile))).catch(() => undefined);
   }, []);
 
+  useEffect(() => { refreshQueueCount().catch(() => undefined); }, []);
+  useEffect(() => {
+    if (!paired || relayState.connected || !RELAY_BASE_URL) return;
+    connectRelay().catch(() => undefined);
+    const timer = setInterval(() => connectRelay().catch(() => undefined), 3000);
+    return () => clearInterval(timer);
+  }, [paired, relayState.connected]);
+  useEffect(() => { if (relayState.connected && relayState.desktopOnline) flushQueue().catch(() => undefined); }, [relayState.connected, relayState.desktopOnline]);
+
+
   const openFile = async () => {
     const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
     if (result.canceled) return;
     const asset = result.assets[0];
     if (!asset) return;
-    const extension = asset.name.split(".").pop()?.toUpperCase() ?? "FILE";
-    setImportedFiles((current) => [{ name: asset.name, meta: asset.size ? `${(asset.size / 1024 / 1024).toFixed(1)} MB` : "가져온 파일", type: extension.slice(0, 4), uri: asset.uri, mime: asset.mimeType ?? "application/octet-stream" }, ...current]);
+    const stored = await importLocalFile({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType });
+    addLocalDocument(stored);
     setRoute("documents");
   };
 
@@ -76,9 +115,10 @@ export default function App() {
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       {route === "home" && <Home onScan={() => setRoute("scan")} onOpen={openFile} onDocuments={() => setRoute("documents")} onPresentation={() => setRoute("presentation")} onTools={() => setRoute("tools")} />}
-      {route === "documents" && <Documents imported={importedFiles} onOpen={(file) => setRoute(file.type === "PPT" ? "presentation" : "viewer")} onImport={openFile} />}
+      {route === "documents" && <Documents imported={importedFiles} pendingCount={pendingCount} transfer={relayState.transfer} onSend={queueFile} onOpen={(file) => setRoute(file.type === "PPT" ? "presentation" : "viewer")} onImport={openFile} />}
       {route === "scan" && <ScannerScreen onClose={() => setRoute("home")} onSaved={(document) => { addLocalDocument(document); setRoute("documents"); }} />}
       {route === "tools" && <Tools />}
+      {route === "viewer" && <Viewer onBack={() => setRoute("documents")} />}
       {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} onPair={() => setRoute("pairing")} />}
       {route === "presentation" && <Presentation onBack={() => setRoute("documents")} />}
       {route === "pairing" && <PairingScreen relayBaseUrl={RELAY_BASE_URL} onBack={() => setRoute("settings")} onPaired={async () => { setPaired(true); await connectRelay(); setRoute("settings"); }} />}
@@ -103,18 +143,19 @@ function Home({ onScan, onOpen, onDocuments, onPresentation, onTools }: { onScan
   </View>;
 }
 
-function Documents({ imported, onOpen, onImport }: { imported: RecentFile[]; onOpen: (file: RecentFile) => void; onImport: () => void }) {
+function Documents({ imported, pendingCount, transfer, onSend, onOpen, onImport }: { imported: RecentFile[]; pendingCount: number; transfer?: RelayState["transfer"]; onSend: (file: RecentFile) => void | Promise<void>; onOpen: (file: RecentFile) => void; onImport: () => void }) {
   const [filter, setFilter] = useState("전체");
   const all = [...imported, ...files];
   return <View style={sharedStyles.content}>
     <ScreenHeader title="문서" right={<View style={styles.headerActions}><IconButton icon="search" /><IconButton icon="grid" /></View>} />
     <SearchBar label="문서 검색" />
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips} contentContainerStyle={styles.chipContent}>{["전체", "PDF", "한글", "Office", "이미지"].map((item) => <Chip key={item} label={item} active={filter === item} onPress={() => setFilter(item)} />)}</ScrollView>
+    {(pendingCount > 0 || transfer) && <View style={styles.transferBanner}><Feather name="upload-cloud" size={16} color={colors.primary} /><View style={{ flex: 1 }}><Text style={styles.transferTitle}>{transfer ? `${transfer.filename} 전송 중` : `${pendingCount}개 전송 대기`}</Text><Text style={styles.transferMeta}>{transfer ? `${Math.round((transfer.acknowledgedBytes / Math.max(1, transfer.sentBytes)) * 100)}% 확인됨` : "PC가 온라인이 되면 자동으로 전송합니다."}</Text></View></View>}
     <ScrollView style={styles.documentList} showsVerticalScrollIndicator={false}>
       <Text style={styles.groupLabel}>오늘</Text>
-      {all.slice(0, 3).map((file) => <FileRow key={`today-${file.name}`} file={file} onPress={() => onOpen(file)} large />)}
+      {all.slice(0, 3).map((file) => <FileRow key={`today-${file.name}`} file={file} onPress={() => onOpen(file)} onSend={file.uri ? () => onSend(file) : undefined} large />)}
       <Text style={[styles.groupLabel, styles.groupGap]}>이번 주</Text>
-      {all.slice(3).map((file) => <FileRow key={`week-${file.name}`} file={file} onPress={() => onOpen(file)} large />)}
+      {all.slice(3).map((file) => <FileRow key={`week-${file.name}`} file={file} onPress={() => onOpen(file)} onSend={file.uri ? () => onSend(file) : undefined} large />)}
     </ScrollView>
     <View style={styles.fileActions}><Pressable style={styles.smallButton}><Feather name="plus" size={16} /><Text style={styles.smallButtonText}>새 폴더</Text></Pressable><Pressable style={styles.smallButton} onPress={onImport}><Feather name="upload" size={16} /><Text style={styles.smallButtonText}>가져오기</Text></Pressable></View>
   </View>;
@@ -185,8 +226,8 @@ function Settings() {
 
 function SettingRow({ icon, title, subtitle }: { icon: keyof typeof Feather.glyphMap; title: string; subtitle: string }) { return <Pressable style={styles.settingRow}><View style={styles.settingIcon}><Feather name={icon} size={18} color={colors.primary} /></View><View style={styles.settingText}><Text style={styles.settingTitle}>{title}</Text><Text style={styles.settingSub}>{subtitle}</Text></View><Feather name="chevron-right" size={17} color={colors.textMuted} /></Pressable>; }
 
-function FileRow({ file, onPress, large = false }: { file: RecentFile; onPress?: () => void; large?: boolean }) {
-  return <Pressable style={[styles.fileRow, large && styles.fileRowLarge]} onPress={onPress}><View style={styles.fileLeft}><View style={[styles.fileIcon, large && styles.fileIconLarge]}><Feather name="file" size={18} color={colors.primary} /></View><View><Text style={styles.fileName}>{file.name}</Text><Text style={styles.fileMeta}>{file.meta}</Text></View></View><FileBadge label={file.type} /></Pressable>;
+function FileRow({ file, onPress, onSend, large = false }: { file: RecentFile; onPress?: () => void; onSend?: () => void | Promise<void>; large?: boolean }) {
+  return <Pressable style={[styles.fileRow, large && styles.fileRowLarge]} onPress={onPress}><View style={styles.fileLeft}><View style={[styles.fileIcon, large && styles.fileIconLarge]}><Feather name="file" size={18} color={colors.primary} /></View><View><Text style={styles.fileName}>{file.name}</Text><Text style={styles.fileMeta}>{file.meta}</Text></View></View><View style={styles.fileRight}>{onSend && <Pressable style={styles.sendButton} onPress={onSend}><Feather name="send" size={15} color={colors.primary} /></Pressable>}<FileBadge label={file.type} /></View></Pressable>;
 }
 
 const styles = StyleSheet.create({
@@ -202,11 +243,16 @@ const styles = StyleSheet.create({
   fileIconLarge: { width: 40, height: 40 },
   fileName: { color: colors.text, fontSize: 13, fontWeight: "700", maxWidth: 220 },
   fileMeta: { color: colors.textMuted, fontSize: 11, marginTop: 3 },
+  fileRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sendButton: { width: 30, height: 30, borderRadius: 9, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
   pcCard: { marginTop: 18, borderRadius: radius.md, padding: 16, backgroundColor: colors.primarySoft, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   pcTitle: { fontWeight: "800", color: colors.text, fontSize: 14 },
   pcMeta: { marginTop: 4, fontSize: 11, color: colors.textMuted },
   headerActions: { flexDirection: "row", alignItems: "center" },
   chips: { marginTop: 16, flexGrow: 0 },
+  transferBanner: { marginTop: 10, borderRadius: 12, backgroundColor: colors.primarySoft, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  transferTitle: { fontSize: 12, fontWeight: "800", color: colors.text },
+  transferMeta: { marginTop: 2, fontSize: 10, color: colors.textMuted },
   chipContent: { gap: 8 },
   documentList: { marginTop: 14, flex: 1, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14 },
   groupLabel: { marginTop: 12, color: colors.textMuted, fontSize: 12, fontWeight: "700" },
