@@ -325,6 +325,33 @@ fn list_inbox(state: State<'_, Arc<AppState>>) -> Vec<InboxItem> {
 }
 
 #[tauri::command]
+async fn set_relay_url(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<AppState>>,
+    relay_base_url: String,
+) -> Result<DesktopSettings, String> {
+    let trimmed = relay_base_url.trim().trim_end_matches('/');
+    let parsed = reqwest::Url::parse(trimmed).map_err(|_| "invalid_relay_url")?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("invalid_relay_url".into());
+    }
+    let snapshot = {
+        let mut settings = state.settings.lock().unwrap();
+        settings.relay_base_url = trimmed.to_string();
+        settings.connected = false;
+        settings.clone()
+    };
+    write_json(&settings_path(), &snapshot).await?;
+    if let Some(task) = state.receiver_task.lock().unwrap().take() {
+        task.abort();
+    }
+    if state.pairing.lock().unwrap().is_some() {
+        start_receiver_supervisor(app, state.inner().clone());
+    }
+    Ok(snapshot)
+}
+
+#[tauri::command]
 async fn choose_receive_dir(
     app: tauri::AppHandle,
     state: State<'_, Arc<AppState>>,
@@ -822,6 +849,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             list_inbox,
+            set_relay_url,
             choose_receive_dir,
             create_pairing,
             connect_receiver,
