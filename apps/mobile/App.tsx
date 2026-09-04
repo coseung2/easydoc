@@ -1,12 +1,17 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, View, Pressable } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as DocumentPicker from "expo-document-picker";
 import { Feather } from "@expo/vector-icons";
 import { ActionCard, BottomNav, Chip, FileBadge, IconButton, ScreenHeader, SearchBar, sharedStyles, type TabKey } from "./src/ui/components";
 import { colors, radius } from "./src/ui/theme";
+import { PairingScreen } from "./src/ui/pairing-screen";
+import { SettingsScreen } from "./src/ui/settings-screen";
+import { getStoredPairing } from "./src/pairing/client";
+import { MobileRelayClient, type RelayState } from "./src/transfer/client";
 
-type Route = TabKey | "viewer" | "presentation";
+type Route = TabKey | "viewer" | "presentation" | "pairing";
+const RELAY_BASE_URL = globalThis.process?.env?.EXPO_PUBLIC_RELAY_URL ?? "";
 type Filter = "자동" | "컬러" | "회색조" | "흑백";
 type RecentFile = { name: string; meta: string; type: string };
 
@@ -27,7 +32,27 @@ const files: RecentFile[] = [
 export default function App() {
   const [route, setRoute] = useState<Route>("home");
   const [importedFiles, setImportedFiles] = useState<RecentFile[]>([]);
-  const activeTab: TabKey = route === "viewer" || route === "presentation" ? "documents" : route;
+  const [paired, setPaired] = useState(false);
+  const [relayState, setRelayState] = useState<RelayState>({ connected: false, desktopOnline: false });
+  const relayClient = useRef<MobileRelayClient | null>(null);
+  const activeTab: TabKey = route === "viewer" || route === "presentation" ? "documents" : route === "pairing" ? "settings" : route;
+  const connectRelay = async () => {
+    if (!RELAY_BASE_URL) return;
+    relayClient.current?.disconnect();
+    const client = new MobileRelayClient(RELAY_BASE_URL, setRelayState);
+    relayClient.current = client;
+    await client.connect();
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    getStoredPairing().then((stored) => {
+      if (!mounted || !stored) return;
+      setPaired(true);
+      connectRelay().catch(() => undefined);
+    }).catch(() => undefined);
+    return () => { mounted = false; relayClient.current?.disconnect(); };
+  }, []);
 
   const openFile = async () => {
     const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
@@ -46,10 +71,10 @@ export default function App() {
       {route === "documents" && <Documents imported={importedFiles} onOpen={(file) => setRoute(file.type === "PPT" ? "presentation" : "viewer")} onImport={openFile} />}
       {route === "scan" && <Scanner onClose={() => setRoute("home")} />}
       {route === "tools" && <Tools />}
-      {route === "settings" && <Settings />}
-      {route === "viewer" && <Viewer onBack={() => setRoute("documents")} />}
+      {route === "settings" && <SettingsScreen paired={paired} online={relayState.desktopOnline} onPair={() => setRoute("pairing")} />}
       {route === "presentation" && <Presentation onBack={() => setRoute("documents")} />}
-      {route !== "viewer" && route !== "presentation" && <BottomNav active={activeTab} onChange={setRoute} />}
+      {route === "pairing" && <PairingScreen relayBaseUrl={RELAY_BASE_URL} onBack={() => setRoute("settings")} onPaired={async () => { setPaired(true); await connectRelay(); setRoute("settings"); }} />}
+      {route !== "viewer" && route !== "presentation" && route !== "pairing" && <BottomNav active={activeTab} onChange={setRoute} />}
     </SafeAreaView>
   );
 }
