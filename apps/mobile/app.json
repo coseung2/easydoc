@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "EasyDoc",
+    "slug": "easydoc",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.easydoc.mobile"
+    },
+    "android": {
+      "package": "app.easydoc.mobile"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "문서를 스캔하려면 카메라 접근 권한이 필요합니다."
+        }
+      ]
+    ]
+  }
+}
