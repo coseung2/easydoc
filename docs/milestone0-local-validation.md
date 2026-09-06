@@ -77,6 +77,6 @@ The following Milestone 0 acceptance items remain external/integration work:
 - validate the real school firewall/proxy behavior
 - validate reconnect across an actual network interruption and process restart
 - measure throughput and stability on the target machines
-- finalize and verify the application-layer E2E encryption construction across React Native and Rust
+- complete remote interoperability validation of the implemented X25519/HKDF-SHA-256/XChaCha20-Poly1305 construction across React Native and Rust
 
 These items must not be inferred as passing from the local harness results above.

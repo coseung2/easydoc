@@ -1,0 +1,5 @@
+{
+  "platforms": ["android", "apple"],
+  "android": { "modules": ["expo.modules.easydococr.EasyDocOcrModule"] },
+  "apple": { "modules": ["EasyDocOcrModule"] }
+}

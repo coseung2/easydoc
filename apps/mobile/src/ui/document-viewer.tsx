@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { PdfView } from "@kishannareshpal/expo-pdf";
@@ -6,14 +6,27 @@ import { File } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { convert as pdfToImages } from "react-native-pdf-to-image";
 import { colors, radius } from "./theme";
+import { recognizeDocument } from "../ocr/client";
+import { joinRecognizedPages, searchRecognizedPages, type RecognizedPage } from "../ocr/text";
+import { discardRenderedPages } from "../documents/rendered-pages";
 
 export type ViewableDocument = { name: string; uri?: string; mime?: string; type: string };
 
 function isPdf(file: ViewableDocument) { return file.mime === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"); }
 function isImage(file: ViewableDocument) { return file.mime?.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/iu.test(file.name); }
 function isText(file: ViewableDocument) { return file.mime === "text/plain" || /\.txt$/iu.test(file.name); }
+function externalMime(file: ViewableDocument): string {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".hwp")) return "application/vnd.hancom.hwp";
+  if (name.endsWith(".hwpx")) return "application/vnd.hancom.hwpx";
+  if (file.mime && file.mime !== "application/octet-stream") return file.mime;
+  if (name.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (name.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (name.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  return file.mime ?? "application/octet-stream";
+}
 
-export function DocumentViewerScreen({ file, onBack, onPresent, onSend }: { file: ViewableDocument | null; onBack: () => void; onPresent: () => void; onSend?: () => void | Promise<void> }) {
+export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }: { file: ViewableDocument | null; onBack: () => void; onPresent: () => void; onSend?: () => void | Promise<void>; onOcr?: () => void }) {
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const [text, setText] = useState("");
@@ -24,10 +37,21 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend }: { file
   const [pagePickerOpen, setPagePickerOpen] = useState(false);
   const [pageImagesLoading, setPageImagesLoading] = useState(false);
   const [jumpedPage, setJumpedPage] = useState<number | null>(null);
+  const [recognizedPages, setRecognizedPages] = useState<RecognizedPage[]>([]);
+  const [recognizing, setRecognizing] = useState(false);
+  const [recognitionProgress, setRecognitionProgress] = useState("");
+  const recognitionRunning = useRef(false);
+  const generation = useRef(0);
+  const recognitionAbort = useRef<AbortController | null>(null);
+  const renderedPages = useRef<string[]>([]);
 
   useEffect(() => {
     setPage(1); setPageCount(0); setText(""); setError(""); setSearchOpen(false); setQuery(""); setPageImages([]); setPagePickerOpen(false); setPageImagesLoading(false); setJumpedPage(null);
+    generation.current += 1;
+    const current = generation.current;
+    setRecognizedPages([]); setRecognizing(false); recognitionRunning.current = false;
     if (file?.uri && isText(file)) new File(file.uri).text().then(setText).catch((cause) => setError(String(cause)));
+    return () => { if (generation.current === current) generation.current += 1; recognitionAbort.current?.abort(); discardRenderedPages(renderedPages.current); renderedPages.current = []; };
   }, [file?.uri]);
 
   const searchCount = useMemo(() => {
@@ -35,26 +59,56 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend }: { file
     if (!needle || !text) return 0;
     return text.toLocaleLowerCase().split(needle).length - 1;
   }, [query, text]);
+  const matchingPages = useMemo(() => searchRecognizedPages(recognizedPages, query), [recognizedPages, query]);
 
   if (!file) return <Unsupported title="선택된 문서가 없습니다" onBack={onBack} />;
 
-  const share = async () => { if (file.uri && await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { mimeType: file.mime, dialogTitle: file.name }); };
-  const search = () => {
+  const share = async () => { if (file.uri && await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { mimeType: externalMime(file), dialogTitle: file.name }); };
+  const openExternally = async () => {
+    if (!file.uri || !await Sharing.isAvailableAsync()) {
+      setError("이 기기에서 외부 문서 앱을 열 수 없습니다.");
+      return;
+    }
+    try {
+      await Sharing.shareAsync(file.uri, { mimeType: externalMime(file), dialogTitle: `${file.name} 열기` });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const search = async () => {
     if (isText(file)) { setError(""); setSearchOpen((value) => !value); return; }
-    if (isPdf(file)) setError("현재 PDF 렌더러는 텍스트 추출/검색 API를 제공하지 않습니다. 검색 가능한 PDF 백엔드는 별도 연동이 필요합니다.");
+    if (!isPdf(file) || recognitionRunning.current) return;
+    setSearchOpen(true); setError("");
+    if (recognizedPages.length) return;
+    recognitionRunning.current = true; setRecognizing(true);
+    const current = generation.current;
+    const controller = new AbortController();
+    recognitionAbort.current = controller;
+    try {
+      const result = await recognizeDocument(file, (page, total) => { if (generation.current === current) setRecognitionProgress(`${page} / ${total}페이지 문자 인식 중`); }, controller.signal);
+      if (generation.current !== current) return;
+      setRecognizedPages(result); setText(joinRecognizedPages(result));
+      if (!result.some(({ text }) => text.trim())) setError("검색할 문자를 찾지 못했습니다.");
+    } catch (cause) { if (generation.current === current) setError(cause instanceof Error ? cause.message : "문자를 인식하지 못했습니다."); }
+    finally { if (generation.current === current) { setRecognizing(false); recognitionRunning.current = false; } }
   };
 
-  const openPagePicker = async () => {
+  const openPagePicker = async (targetPage?: number) => {
     if (!file.uri || !isPdf(file)) return;
     setError("");
     setPagePickerOpen(true);
-    if (pageImages.length > 0 || pageImagesLoading) return;
+    if (pageImages.length > 0) { if (targetPage !== undefined) jumpToPage(targetPage); return; }
+    if (pageImagesLoading) return;
     setPageImagesLoading(true);
+    const current = generation.current;
     try {
       const result = await pdfToImages(file.uri);
-      const output = result.outputFiles ?? [];
+      const output = (result.outputFiles ?? []).map((uri) => new File(uri).uri);
+      if (generation.current !== current) { discardRenderedPages(output); return; }
+      renderedPages.current = output;
       setPageImages(output);
       if (output.length > 0) setPageCount(output.length);
+      if (targetPage !== undefined && output[targetPage]) { setJumpedPage(targetPage); setPage(targetPage + 1); setPagePickerOpen(false); }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setPagePickerOpen(false);
@@ -74,21 +128,24 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend }: { file
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.titleRow}><Feather name="arrow-left" size={20} color={colors.text} /><View style={styles.titleBlock}><Text style={styles.title} numberOfLines={1}>{file.name}</Text><Text style={styles.meta}>{pageCount > 0 ? `${page} / ${pageCount}` : file.type}</Text></View></Pressable>
       <View style={styles.headerActions}>
-        {(isPdf(file) || isText(file)) && <Pressable style={styles.iconButton} onPress={search}><Feather name="search" size={19} /></Pressable>}
-        {isPdf(file) && <Pressable style={styles.iconButton} onPress={openPagePicker}><Feather name="copy" size={18} /></Pressable>}
+        {(isPdf(file) || isText(file)) && <Pressable accessibilityLabel="문서 검색" style={styles.iconButton} onPress={search}><Feather name="search" size={19} /></Pressable>}
+        {onOcr && (isPdf(file) || isImage(file)) && <Pressable accessibilityLabel="문자 인식" style={styles.iconButton} onPress={onOcr}><Feather name="type" size={18} /></Pressable>}
+        {isPdf(file) && <Pressable accessibilityLabel="페이지 이동" style={styles.iconButton} onPress={() => openPagePicker()}><Feather name="copy" size={18} /></Pressable>}
         {isPdf(file) && <Pressable style={styles.iconButton} onPress={onPresent}><Feather name="maximize-2" size={19} /></Pressable>}
         {file.uri && onSend && <Pressable style={styles.iconButton} onPress={() => onSend()}><Feather name="send" size={18} color={colors.primary} /></Pressable>}
         <Pressable style={styles.iconButton} onPress={share}><Feather name="share-2" size={19} /></Pressable>
       </View>
     </View>
-    {searchOpen && isText(file) && <View style={styles.searchBar}><Feather name="search" size={16} color={colors.textMuted} /><TextInput value={query} onChangeText={setQuery} autoFocus placeholder="문서에서 찾기" placeholderTextColor={colors.textMuted} style={styles.searchInput} /><Text style={styles.searchCount}>{query.trim() ? `${searchCount}개` : ""}</Text><Pressable onPress={() => { setSearchOpen(false); setQuery(""); }}><Feather name="x" size={17} color={colors.textMuted} /></Pressable></View>}
+    {searchOpen && <View style={styles.searchBar}><Feather name="search" size={16} color={colors.textMuted} /><TextInput accessibilityLabel="문서에서 찾기" value={query} onChangeText={setQuery} autoFocus placeholder="문서에서 찾기" placeholderTextColor={colors.textMuted} style={styles.searchInput} /><Text style={styles.searchCount}>{query.trim() ? `${searchCount}개` : ""}</Text><Pressable accessibilityLabel="검색 닫기" style={styles.iconButton} onPress={() => { recognitionAbort.current?.abort(); setSearchOpen(false); setQuery(""); }}><Feather name="x" size={17} color={colors.textMuted} /></Pressable></View>}
+    {searchOpen && recognizing && <Text style={styles.searchNotice}>{recognitionProgress}</Text>}
+    {searchOpen && isPdf(file) && !recognizing && !!query.trim() && <ScrollView horizontal style={{ maxHeight: 50 }} contentContainerStyle={{ gap: 8, alignItems: "center" }}>{matchingPages.map((result) => <Pressable key={result.page} style={styles.matchPage} onPress={() => openPagePicker(result.page - 1)}><Text style={styles.continuousText}>{result.page}페이지</Text></Pressable>)}{!matchingPages.length && <Text style={styles.searchNotice}>일치하는 페이지가 없습니다.</Text>}</ScrollView>}
     <View style={styles.viewer}>
       {!file.uri && <UnsupportedBody message="이 예시 문서는 실제 로컬 파일이 아닙니다." />}
       {file.uri && isPdf(file) && jumpedPage === null && <PdfView style={styles.pdf} uri={file.uri} pageGap={10} doubleTapToZoom autoScale fitMode="width" onLoadComplete={({ pageCount: count }) => setPageCount(count)} onPageChanged={({ pageIndex, pageCount: count }) => { setPage(pageIndex + 1); setPageCount(count); }} onError={({ message }) => setError(message)} />}
       {file.uri && isPdf(file) && jumpedPage !== null && pageImages[jumpedPage] && <View style={styles.jumpView}><ScrollView contentContainerStyle={styles.jumpImageWrap} maximumZoomScale={4} minimumZoomScale={1}><Image source={{ uri: pageImages[jumpedPage] }} style={styles.jumpImage} resizeMode="contain" /></ScrollView><View style={styles.jumpControls}><Pressable style={styles.jumpButton} disabled={jumpedPage <= 0} onPress={() => jumpToPage(Math.max(0, jumpedPage - 1))}><Feather name="chevron-left" size={18} color={jumpedPage <= 0 ? colors.textMuted : colors.text} /></Pressable><Pressable style={styles.continuousButton} onPress={() => setJumpedPage(null)}><Feather name="list" size={15} color={colors.primary} /><Text style={styles.continuousText}>연속 보기</Text></Pressable><Pressable style={styles.jumpButton} disabled={jumpedPage >= pageImages.length - 1} onPress={() => jumpToPage(Math.min(pageImages.length - 1, jumpedPage + 1))}><Feather name="chevron-right" size={18} color={jumpedPage >= pageImages.length - 1 ? colors.textMuted : colors.text} /></Pressable></View></View>}
       {file.uri && isImage(file) && <ScrollView contentContainerStyle={styles.imageWrap} maximumZoomScale={4} minimumZoomScale={1}><Image source={{ uri: file.uri }} style={styles.image} resizeMode="contain" /></ScrollView>}
       {file.uri && isText(file) && <ScrollView style={styles.textView}><Text selectable style={styles.textContent}>{text}</Text></ScrollView>}
-      {file.uri && !isPdf(file) && !isImage(file) && !isText(file) && <UnsupportedBody message="HWP/HWPX 및 Office 고정밀 렌더링은 별도 구현 트랙입니다. 현재 앱에서는 원본 파일을 보관하고 PC로 전송할 수 있습니다." />}
+      {file.uri && !isPdf(file) && !isImage(file) && !isText(file) && <UnsupportedBody message="HWP/HWPX 및 Office 문서는 기기 내 미리보기를 지원하지 않습니다. 설치된 한글 또는 문서 앱에서 원본 파일을 열 수 있습니다." actionLabel="외부 앱에서 열기" onAction={openExternally} />}
     </View>
     {pagePickerOpen && isPdf(file) && <View style={styles.pagePicker}><View style={styles.pagePickerHeader}><Text style={styles.pagePickerTitle}>페이지 이동</Text><Pressable onPress={() => setPagePickerOpen(false)}><Feather name="x" size={18} color={colors.textMuted} /></Pressable></View>{pageImagesLoading ? <View style={styles.pagePickerLoading}><ActivityIndicator color={colors.primary} /><Text style={styles.pagePickerLoadingText}>썸네일 준비 중...</Text></View> : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.readerThumbnailRow}>{pageImages.map((uri, index) => <Pressable key={`${uri}-${index}`} style={[styles.readerThumbnail, page === index + 1 && styles.readerThumbnailActive]} onPress={() => jumpToPage(index)}><Image source={{ uri }} style={styles.readerThumbnailImage} resizeMode="cover" /><Text style={styles.readerThumbnailNumber}>{index + 1}</Text></Pressable>)}</ScrollView>}</View>}
     {error && <Text style={styles.error}>{error}</Text>}
@@ -100,14 +157,19 @@ export function PresentationScreen({ file, onBack }: { file: ViewableDocument | 
   const [pages, setPages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const renderedPages = useRef<string[]>([]);
 
   useEffect(() => {
     setPage(1); setPages([]); setError("");
     if (!file?.uri || !isPdf(file)) return;
     let mounted = true;
     setLoading(true);
-    pdfToImages(file.uri).then((result) => { if (mounted) setPages(result.outputFiles ?? []); }).catch((cause) => { if (mounted) setError(cause instanceof Error ? cause.message : String(cause)); }).finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; };
+    pdfToImages(file.uri).then((result) => {
+      const outputs = (result.outputFiles ?? []).map((uri) => new File(uri).uri);
+      if (!mounted) { discardRenderedPages(outputs); return; }
+      renderedPages.current = outputs; setPages(outputs);
+    }).catch((cause) => { if (mounted) setError(cause instanceof Error ? cause.message : String(cause)); }).finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; discardRenderedPages(renderedPages.current); renderedPages.current = []; };
   }, [file?.uri]);
 
   if (!file || !file.uri || !isPdf(file)) return <Unsupported title="PDF 발표 모드" message="발표 모드는 현재 PDF 문서에서 사용할 수 있습니다." onBack={onBack} />;
@@ -134,14 +196,15 @@ function Unsupported({ title, message, onBack }: { title: string; message?: stri
   return <View style={styles.root}><View style={styles.header}><Pressable onPress={onBack} style={styles.titleRow}><Feather name="arrow-left" size={20} /><Text style={styles.title}>{title}</Text></Pressable></View><UnsupportedBody message={message ?? "문서를 다시 선택해 주세요."} /></View>;
 }
 
-function UnsupportedBody({ message }: { message: string }) { return <View style={styles.unsupported}><View style={styles.unsupportedIcon}><Feather name="file-text" size={26} color={colors.primary} /></View><Text style={styles.unsupportedTitle}>미리보기 준비 중</Text><Text style={styles.unsupportedText}>{message}</Text></View>; }
+function UnsupportedBody({ message, actionLabel, onAction }: { message: string; actionLabel?: string; onAction?: () => void | Promise<void> }) { return <View style={styles.unsupported}><View style={styles.unsupportedIcon}><Feather name="file-text" size={26} color={colors.primary} /></View><Text style={styles.unsupportedTitle}>미리보기 준비 중</Text><Text style={styles.unsupportedText}>{message}</Text>{actionLabel && onAction && <Pressable style={styles.externalButton} onPress={onAction}><Feather name="external-link" size={15} color="#FFFFFF" /><Text style={styles.externalButtonText}>{actionLabel}</Text></Pressable>}</View>; }
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 20, backgroundColor: colors.background },
-  header: { height: 60, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  header: { minHeight: 60, justifyContent: "center", gap: 4, paddingVertical: 6 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
   titleBlock: { flexShrink: 1 }, title: { fontSize: 14, fontWeight: "800", color: colors.text, maxWidth: 220 }, meta: { marginTop: 3, color: colors.textMuted, fontSize: 11 },
-  headerActions: { flexDirection: "row" }, iconButton: { width: 36, height: 38, alignItems: "center", justifyContent: "center" },
+  headerActions: { flexDirection: "row", justifyContent: "flex-end" }, iconButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  searchNotice: { fontSize: 12, paddingVertical: 8, color: colors.textMuted }, matchPage: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center", borderRadius: 10, backgroundColor: colors.primarySoft },
   searchBar: { height: 44, marginBottom: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 8 },
   searchInput: { flex: 1, fontSize: 12, color: colors.text, paddingVertical: 0 }, searchCount: { fontSize: 10, color: colors.textMuted, fontWeight: "700" },
   viewer: { flex: 1, borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.surfaceMuted }, pdf: { flex: 1 },
@@ -151,6 +214,7 @@ const styles = StyleSheet.create({
   textView: { flex: 1, padding: 20, backgroundColor: colors.surface }, textContent: { fontSize: 14, lineHeight: 22, color: colors.text },
   unsupported: { flex: 1, minHeight: 420, alignItems: "center", justifyContent: "center", paddingHorizontal: 34, backgroundColor: colors.surfaceMuted, borderRadius: radius.md },
   unsupportedIcon: { width: 54, height: 54, borderRadius: 16, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" }, unsupportedTitle: { marginTop: 14, fontWeight: "800", color: colors.text }, unsupportedText: { marginTop: 8, textAlign: "center", color: colors.textMuted, fontSize: 12, lineHeight: 19 },
+  externalButton: { marginTop: 18, minHeight: 40, paddingHorizontal: 14, borderRadius: 10, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", gap: 7 }, externalButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
   error: { color: colors.danger, fontSize: 11, paddingVertical: 8 },
   presentationRoot: { flex: 1, backgroundColor: "#0B1020" }, presentationHeader: { height: 58, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, presentationName: { color: "#FFFFFF", fontSize: 13, fontWeight: "700", maxWidth: 235 }, presentationHeaderRight: { flexDirection: "row", alignItems: "center", gap: 14 }, presentationCount: { color: "#CBD5E1", fontSize: 12 },
   presentationStage: { flex: 1, marginHorizontal: 12, borderRadius: 10, overflow: "hidden", backgroundColor: "#111827", alignItems: "center", justifyContent: "center" }, presentationImage: { width: "100%", height: "100%" }, loading: { alignItems: "center", gap: 10 }, loadingText: { color: "#94A3B8", fontSize: 11 },

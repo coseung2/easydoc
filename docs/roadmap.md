@@ -50,7 +50,7 @@ Desktop:
 ## Milestone 2 — Reliable daily workflow
 
 Transfer:
-- Hardened E2E encryption
+- E2E encryption hardening and interoperability review
 - Robust resume across app restarts
 - Multiple paired PCs
 - Auto-send default destination
@@ -77,8 +77,7 @@ Mobile:
 - PDF → images
 - Reorder/delete/rotate pages
 - Compression
-- OCR
-- Searchable PDF
+- Searchable-PDF authoring
 - Signature
 - Watermark
 - Password protection

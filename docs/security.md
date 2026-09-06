@@ -54,7 +54,11 @@ The relay must not receive file decryption keys.
 
 Do not implement custom cryptographic primitives. Use mature, audited platform/library implementations.
 
-The concrete key-agreement and AEAD construction should be selected during implementation after verifying compatibility across React Native and Rust. Candidate classes include modern X25519-based key agreement and an authenticated encryption primitive such as AES-GCM or ChaCha20-Poly1305, but the exact construction must be documented before production use.
+The implementation uses X25519 key agreement, HKDF-SHA-256 derivation scoped to
+each transfer, and XChaCha20-Poly1305 authenticated encryption per chunk. Chunk
+indices and transfer IDs are authenticated as additional data. This construction
+is implemented in the shared crypto package and the Rust receiver; interoperability
+and real-device validation remain part of the remote acceptance workflow.
 
 ## Device identity
 

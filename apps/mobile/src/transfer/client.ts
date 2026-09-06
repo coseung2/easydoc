@@ -1,36 +1,94 @@
 import { deriveTransferKey, encryptChunk } from "../../../../packages/crypto/src/index.ts";
 import { DEFAULT_CHUNK_SIZE, parseTransferControlMessage, type TransferStartMessage } from "../../../../packages/protocol/src/index.ts";
-import { getOrCreateIdentity, getStoredPairing, refreshMobileSession, type StoredMobilePairing } from "../pairing/client.ts";
+import { getOrCreateIdentity, refreshMobileSession, type StoredMobilePairing } from "../pairing/client.ts";
 import { ExpoFileChunkSource, sha256File } from "./expo-file-source.ts";
 import { TransferSender, type SenderProgress } from "./sender.ts";
 
 export type RelayState = { connected: boolean; desktopOnline: boolean; transfer?: SenderProgress & { transferId: string; filename: string } };
 
 type ActiveTransfer = { meta: TransferStartMessage; source: ExpoFileChunkSource; sender: TransferSender; resolve: () => void; reject: (error: Error) => void };
+type ConnectAttempt = { generation: number; socket: WebSocket | null; cancel: () => void };
+
+const CONNECT_TIMEOUT_MS = 15_000;
 
 export class MobileRelayClient {
   private socket: WebSocket | null = null;
-  private pairing: StoredMobilePairing | null = null;
+  private connectAttempt: ConnectAttempt | null = null;
+  private connectionGeneration = 0;
   private active: ActiveTransfer | null = null;
   private state: RelayState = { connected: false, desktopOnline: false };
-  constructor(private readonly relayBaseUrl: string, private readonly onState: (state: RelayState) => void = () => undefined) {}
+  constructor(private readonly relayBaseUrl: string, private readonly pairing: StoredMobilePairing, private readonly onState: (state: RelayState) => void = () => undefined) {}
 
   snapshot(): RelayState { return this.state; }
 
   async connect(): Promise<void> {
-    this.pairing = await getStoredPairing(); if (!this.pairing) throw new Error("pairing_invalid");
-    const session = await refreshMobileSession(this.relayBaseUrl, this.pairing);
-    const url = new URL(this.relayBaseUrl); url.protocol = url.protocol === "https:" ? "wss:" : "ws:"; url.pathname = "/connect"; url.search = new URLSearchParams({ token: session.token }).toString();
+    if (this.socket?.readyState === WebSocket.OPEN) return;
+    this.connectAttempt?.cancel();
+    const generation = this.connectionGeneration + 1;
+    this.connectionGeneration = generation;
     await new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(url.toString()); socket.binaryType = "arraybuffer";
-      socket.onopen = () => { this.socket = socket; this.update({ connected: true }); resolve(); };
-      socket.onerror = () => reject(new Error("relay_unavailable"));
-      socket.onclose = () => { if (this.socket === socket) this.socket = null; this.failActive(new Error("relay_unavailable")); this.update({ connected: false, desktopOnline: false }); };
-      socket.onmessage = (event) => { if (typeof event.data === "string") this.handleControl(event.data).catch((error) => this.failActive(error)); };
+      let settled = false;
+      const attempt: ConnectAttempt = { generation, socket: null, cancel: () => finish(new Error("connection_cancelled")) };
+      const timeout = setTimeout(() => finish(new Error("relay_unavailable")), CONNECT_TIMEOUT_MS);
+      const isCurrent = () => this.connectionGeneration === generation && this.connectAttempt === attempt;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (this.connectAttempt === attempt) this.connectAttempt = null;
+        if (error) {
+          const socket = attempt.socket;
+          attempt.socket = null;
+          if (socket && socket !== this.socket) socket.close();
+          reject(error);
+        } else resolve();
+      };
+      attempt.cancel = () => finish(new Error("connection_cancelled"));
+      this.connectAttempt = attempt;
+      void (async () => {
+        try {
+          const session = await refreshMobileSession(this.relayBaseUrl, this.pairing);
+          if (!isCurrent()) return;
+          const url = new URL(this.relayBaseUrl); url.protocol = url.protocol === "https:" ? "wss:" : "ws:"; url.pathname = "/connect"; url.search = new URLSearchParams({ token: session.token }).toString();
+          const socket = new WebSocket(url.toString());
+          attempt.socket = socket;
+          socket.binaryType = "arraybuffer";
+          socket.onopen = () => {
+            if (!isCurrent()) { socket.close(); return; }
+            attempt.socket = null;
+            this.socket = socket;
+            this.update({ connected: true });
+            finish();
+          };
+          socket.onerror = () => { if (isCurrent()) finish(new Error("relay_unavailable")); };
+          socket.onclose = () => {
+            if (!settled && isCurrent()) { finish(new Error("relay_unavailable")); return; }
+            if (this.connectionGeneration !== generation || this.socket !== socket) return;
+            this.socket = null;
+            this.failActive(new Error("relay_unavailable"));
+            this.update({ connected: false, desktopOnline: false });
+          };
+          socket.onmessage = (event) => {
+            if (this.connectionGeneration !== generation || this.socket !== socket || typeof event.data !== "string") return;
+            this.handleControl(event.data).catch((error) => this.failActive(error));
+          };
+        } catch (error) {
+          if (isCurrent()) finish(error instanceof Error ? error : new Error("relay_unavailable"));
+        }
+      })();
     });
   }
 
-  disconnect(): void { this.socket?.close(); this.socket = null; this.update({ connected: false, desktopOnline: false }); }
+  disconnect(): void {
+    this.connectionGeneration += 1;
+    this.connectAttempt?.cancel();
+    this.connectAttempt = null;
+    const socket = this.socket;
+    this.socket = null;
+    this.failActive(new Error("connection_cancelled"));
+    socket?.close();
+    this.update({ connected: false, desktopOnline: false });
+  }
 
   async sendFile(input: { uri: string; name: string; mime: string; transferId?: string }): Promise<void> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) throw new Error("relay_unavailable"); if (!this.pairing) throw new Error("pairing_invalid"); if (this.active) throw new Error("transfer_in_progress");

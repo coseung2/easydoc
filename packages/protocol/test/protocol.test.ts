@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BINARY_FRAME_HEADER_BYTES, DEFAULT_CHUNK_SIZE, PROTOCOL_VERSION, assertPairingPayloadFresh, decodeChunkFrame, encodeChunkFrame, parsePairingPayload, parseTransferControlMessage } from "../src/index.ts";
+import { BINARY_FRAME_HEADER_BYTES, DEFAULT_CHUNK_SIZE, PROTOCOL_VERSION, assertPairingPayloadFresh, decodeChunkFrame, encodeChunkFrame, pairingPayloadFromUrl, pairingRefKey, parsePairingPayload, parseTransferControlMessage } from "../src/index.ts";
 const TRANSFER_ID = "123e4567-e89b-42d3-a456-426614174000";
 test("validates transfer start and preserves Korean filenames", () => {
   const message = parseTransferControlMessage({ type: "transfer:start", transferId: TRANSFER_ID, destinationDeviceId: "school-pc", name: "학급교육과정.pdf", size: 1882723, mime: "application/pdf", sha256: "a".repeat(64), chunkSize: DEFAULT_CHUNK_SIZE });
@@ -16,6 +16,21 @@ test("rejects corrupt binary payload length", () => {
   assert.throws(() => decodeChunkFrame(broken), /invalid_payload_length/);
 });
 test("pairing payload is versioned and expiration-aware", () => {
-  const payload = parsePairingPayload({ version: PROTOCOL_VERSION, desktopId: "desktop_school", roomId: "room_123", publicKey: "public-key", pairingToken: "one-time-token", expiresAt: 1800000000000 });
+  const payload = parsePairingPayload({ version: PROTOCOL_VERSION, desktopId: "desktop_school", desktopAlias: "학교 PC", roomId: "room_123", publicKey: "public-key", pairingToken: "one-time-token", expiresAt: 1800000000000 });
+  assert.equal(payload.desktopAlias, "학교 PC");
   assert.doesNotThrow(() => assertPairingPayloadFresh(payload, 1700000000000)); assert.throws(() => assertPairingPayloadFresh(payload, 1900000000000), /pairing_expired/);
+});
+test("pairing payloads without an alias remain backward compatible", () => {
+  const payload = parsePairingPayload({ version: PROTOCOL_VERSION, desktopId: "desktop_legacy", roomId: "room_123", publicKey: "public-key", pairingToken: "one-time-token", expiresAt: 1800000000000 });
+  assert.equal(payload.desktopAlias, undefined);
+});
+test("pairing links accept only the app-owned pair route", () => {
+  const payload = JSON.stringify({ token: "한글 token" });
+  assert.equal(pairingPayloadFromUrl(`easydoc://pair?payload=${encodeURIComponent(payload)}`), payload);
+  assert.equal(pairingPayloadFromUrl(`https://example.com/?payload=${encodeURIComponent(payload)}`), null);
+  assert.equal(pairingPayloadFromUrl(`prefix payload=${encodeURIComponent(payload)}`), null);
+  assert.equal(pairingPayloadFromUrl("easydoc://pair?payload="), null);
+});
+test("pairing references include both room and desktop identity", () => {
+  assert.notEqual(pairingRefKey({ roomId: "room-a", desktopId: "desktop" }), pairingRefKey({ roomId: "room-b", desktopId: "desktop" }));
 });

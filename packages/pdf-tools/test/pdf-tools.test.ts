@@ -39,3 +39,13 @@ test("optimization keeps the document readable", async () => {
   const output = await optimizePdf(await sample(2));
   assert.equal(await pageCount(output), 2);
 });
+
+test("PDF tools reject an encryption dictionary instead of silently rewriting protected content", async () => {
+  const document = await PDFDocument.create();
+  document.addPage();
+  document.context.trailerInfo.Encrypt = document.context.register(document.context.obj({ Filter: "Standard", V: 1, R: 2 }));
+  const protectedPdf = await document.save();
+  await assert.rejects(() => optimizePdf(protectedPdf), /encrypted/i);
+  await assert.rejects(() => mergePdfs([protectedPdf, protectedPdf]), /encrypted/i);
+  await assert.rejects(() => splitPdf(protectedPdf), /encrypted/i);
+});

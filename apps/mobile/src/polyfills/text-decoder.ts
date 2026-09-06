@@ -17,7 +17,7 @@ export function installLatin1TextDecoderPolyfill(target: { TextDecoder: DecoderC
     new NativeTextDecoder("latin1");
     return;
   } catch {
-    // Hermes only exposes UTF-8. fast-png creates a latin1 decoder at module load.
+    // fast-png 초기화에 필요한 latin1 디코더가 없는 런타임만 보완한다.
   }
 
   class CompatibleTextDecoder implements Decoder {

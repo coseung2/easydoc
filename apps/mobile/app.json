@@ -3,7 +3,8 @@
     "name": "EasyDoc",
     "slug": "easydoc",
     "icon": "../desktop/src-tauri/icons/ios/AppIcon-512@2x.png",
-    "version": "0.1.0",
+    "scheme": "easydoc",
+    "version": "0.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -12,17 +13,59 @@
       "bundleIdentifier": "app.easydoc.mobile"
     },
     "android": {
-      "package": "app.easydoc.mobile"
+      "package": "app.easydoc.mobile",
+      "versionCode": 2,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": ["DEFAULT", "BROWSABLE"],
+          "data": [
+            { "mimeType": "application/pdf" },
+            { "mimeType": "application/x-hwp" },
+            { "mimeType": "application/vnd.hancom.hwp" },
+            { "mimeType": "application/haansofthwp" },
+            { "mimeType": "application/vnd.hancom.hwpx" },
+            { "mimeType": "application/hwp+zip" },
+            { "mimeType": "application/msword" },
+            { "mimeType": "application/vnd.ms-excel" },
+            { "mimeType": "application/vnd.ms-powerpoint" },
+            { "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+            { "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+            { "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
+            { "mimeType": "image/*" }
+          ]
+        }
+      ]
     },
     "plugins": [
       [
         "expo-camera",
         {
-          "cameraPermission": "문서를 스캔하려면 카메라 접근 권한이 필요합니다."
+          "cameraPermission": "사진 촬영과 문서 스캔에 카메라 접근 권한이 필요합니다.",
+          "recordAudioAndroid": false
         }
       ],
       "expo-secure-store",
-      "react-native-document-scanner-plugin"
+      "react-native-document-scanner-plugin",
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": [
+            "application/pdf",
+            "application/x-hwp",
+            "application/vnd.hancom.hwp",
+            "application/haansofthwp",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/msword",
+            "application/vnd.ms-excel",
+            "application/vnd.ms-powerpoint",
+            "image/*"
+          ],
+          "androidMultiIntentFilters": ["application/pdf", "image/*"]
+        }
+      ]
     ]
   }
 }

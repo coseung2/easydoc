@@ -28,7 +28,7 @@ The application should eliminate messenger/email/USB handoff for routine scannin
 - Reorder / delete / retake pages
 - Generate PDF
 - Local save
-- Pair to one desktop via QR
+- Pair to one desktop via QR using the phone's default camera flow
 - Transfer queue and progress
 
 ### Desktop
@@ -123,7 +123,7 @@ PDF v1:
 - Zoom
 - Thumbnail navigation
 - Page jump
-- Text search when supported
+- Text search for PDFs through local OCR, with matching-page navigation
 - Share
 - Transfer to desktop
 
@@ -149,8 +149,7 @@ MVP/early v1:
 - Compress
 
 Later:
-- OCR
-- Searchable PDF
+- Searchable-PDF authoring
 - Signature
 - Watermark
 - Password protection
@@ -202,6 +201,9 @@ Settings should eventually allow:
 - Auto-number
 - Replace
 - Ask each time
+
+The desktop relay endpoint is release/environment configuration rather than a
+user-editable field in the companion UI. The receive folder remains user-configurable.
 
 ## 9. Desktop Scan Inbox
 

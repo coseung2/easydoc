@@ -1,53 +1,20 @@
-import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { getPairingKey, type StoredMobilePairing } from "../pairing/client.ts";
 import { ScreenHeader } from "./components";
 import { colors, radius } from "./theme";
 
-function Row({ icon, title, subtitle, onPress }: { icon: keyof typeof Feather.glyphMap; title: string; subtitle: string; onPress?: () => void }) {
-  return <Pressable style={styles.row} onPress={onPress}><View style={styles.icon}><Feather name={icon} size={18} color={colors.primary} /></View><View style={styles.text}><Text style={styles.title}>{title}</Text><Text style={styles.sub}>{subtitle}</Text></View><Feather name="chevron-right" size={17} color={colors.textMuted} /></Pressable>;
+function pairingName(pairing: StoredMobilePairing): string { return pairing.desktopAlias?.trim() || pairing.desktopId; }
+
+function PairingRow({ pairing, selected, online, connectionError, onSelect, onRemove }: { pairing: StoredMobilePairing; selected: boolean; online?: boolean; connectionError?: string; onSelect: () => void; onRemove: () => void }) {
+  const name = pairingName(pairing); const status = connectionError ? "연결 오류" : online === undefined ? "연결 대기" : online ? "온라인" : "오프라인"; const statusColor = online === undefined && !connectionError ? colors.textMuted : online && !connectionError ? colors.success : colors.danger;
+  return <View style={[styles.pcRow, selected && styles.pcRowSelected]}><Pressable style={styles.pcSelect} onPress={onSelect} accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={`${name}, ${status}${selected ? ", 선택됨" : ""}`}><View style={styles.pcIcon}><Feather name="monitor" size={18} color={colors.primary} /></View><View style={styles.pcText}><Text style={styles.pcName} numberOfLines={1}>{name}</Text><Text style={styles.pcId} numberOfLines={1}>{pairing.desktopId}</Text></View><View style={styles.pcStatus}><View style={[styles.statusDot, { backgroundColor: statusColor }]} /><Text style={[styles.statusText, { color: statusColor }]}>{status}</Text></View></Pressable><Pressable style={styles.removeButton} onPress={() => Alert.alert("PC 연결 삭제", `${name} 연결을 삭제할까요?`, [{ text: "취소", style: "cancel" }, { text: "삭제", style: "destructive", onPress: onRemove }])} accessibilityRole="button" accessibilityLabel={`${name} 연결 삭제`}><Feather name="trash-2" size={17} color={colors.danger} /></Pressable></View>;
 }
 
-export function SettingsScreen({ paired, online, relayBaseUrl, onPair, onRelayUrlChange }: { paired: boolean; online: boolean; relayBaseUrl: string; onPair: () => void; onRelayUrlChange: (value: string) => Promise<void> }) {
-  const [relayUrl, setRelayUrl] = useState(relayBaseUrl);
-  const [message, setMessage] = useState("");
-  useEffect(() => setRelayUrl(relayBaseUrl), [relayBaseUrl]);
-
-  const saveRelay = async () => {
-    setMessage("");
-    try { await onRelayUrlChange(relayUrl); setMessage("Relay URL 저장됨"); }
-    catch (error) { setMessage(error instanceof Error ? error.message : "invalid_relay_url"); }
-  };
-
-  return <ScrollView style={styles.root} showsVerticalScrollIndicator={false}>
-    <ScreenHeader title="설정" />
-    <Text style={styles.label}>연결</Text>
-    <View style={styles.card}>
-      <Row icon="monitor" title={paired ? "연결된 PC" : "PC 연결"} subtitle={paired ? (online ? "온라인 · 전송 가능" : "오프라인") : "QR 코드로 Windows PC와 연결"} onPress={onPair} />
-      <Row icon="wifi" title="전송 상태" subtitle={online ? "PC가 온라인입니다" : "연결 대기"} />
-      <Row icon="folder" title="기본 저장" subtitle="스캔 문서를 기기에 유지" />
-    </View>
-    <Text style={styles.label}>Relay</Text>
-    <View style={styles.relayCard}><Text style={styles.relayTitle}>Cloudflare Worker URL</Text><Text style={styles.relayHelp}>예: https://easydoc-relay.example.workers.dev</Text><TextInput value={relayUrl} onChangeText={setRelayUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://..." placeholderTextColor={colors.textMuted} style={styles.input} /><Pressable style={styles.saveButton} onPress={saveRelay}><Text style={styles.saveText}>주소 적용</Text></Pressable>{message && <Text style={styles.message}>{message}</Text>}</View>
-    <Text style={styles.label}>스캔</Text>
-    <View style={styles.card}><Row icon="maximize" title="자동 문서 감지" subtitle="문서 경계를 감지해 자르기" /><Row icon="layers" title="기본 필터" subtitle="컬러" /></View>
-  </ScrollView>;
+export function SettingsScreen({ pairings, selectedPairing, onlineByPairing, connectionErrors, actionError, onPair, onSelectPairing, onRemovePairing, onRetryConnections }: { pairings: StoredMobilePairing[]; selectedPairing: StoredMobilePairing | null; onlineByPairing: Readonly<Record<string, boolean>>; connectionErrors: Readonly<Record<string, string>>; actionError?: string; onPair: () => void; onSelectPairing: (pairing: StoredMobilePairing) => void | Promise<void>; onRemovePairing: (pairing: StoredMobilePairing) => void | Promise<void>; onRetryConnections: () => void }) {
+  const selectedKey = selectedPairing ? getPairingKey(selectedPairing) : "";
+  const hasConnectionError = Object.keys(connectionErrors).length > 0;
+  return <ScrollView style={styles.root} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}><ScreenHeader title="설정" /><Text style={styles.label}>연결</Text>{(actionError || hasConnectionError) && <View style={styles.errorCard}><Text style={styles.errorText}>{actionError || "PC에 연결하지 못했습니다. 네트워크와 PC 앱 상태를 확인해 주세요."}</Text><Pressable style={styles.retryButton} onPress={onRetryConnections} accessibilityRole="button"><Text style={styles.retryText}>다시 시도</Text></Pressable></View>}<View style={styles.card}>{pairings.length === 0 ? <Pressable style={styles.emptyRow} onPress={onPair}><View style={styles.icon}><Feather name="monitor" size={18} color={colors.primary} /></View><View style={styles.text}><Text style={styles.title}>PC 연결</Text><Text style={styles.sub}>QR 코드로 Windows PC와 연결</Text></View><Feather name="chevron-right" size={17} color={colors.textMuted} /></Pressable> : <><View style={styles.pcHeader}><Text style={styles.pcHeaderTitle}>연결된 PC</Text><Text style={styles.pcHeaderCount}>{pairings.length}대</Text></View>{pairings.map((pairing) => { const key = getPairingKey(pairing); return <PairingRow key={key} pairing={pairing} selected={key === selectedKey} online={onlineByPairing[key]} connectionError={connectionErrors[key]} onSelect={() => onSelectPairing(pairing)} onRemove={() => void onRemovePairing(pairing)} />; })}<Pressable style={styles.addButton} onPress={onPair} accessibilityRole="button"><Feather name="plus" size={16} color={colors.primary} /><Text style={styles.addText}>PC 연결 추가</Text></Pressable></>}</View><Text style={styles.label}>전송</Text><View style={styles.card}><View style={styles.infoRow}><View style={styles.icon}><Feather name="wifi" size={18} color={colors.primary} /></View><View style={styles.text}><Text style={styles.title}>전송 상태</Text><Text style={styles.sub}>{selectedPairing ? `${pairingName(selectedPairing)}를 기본 PC로 사용합니다.` : "연결할 PC를 선택해 주세요."}</Text></View></View></View><Text style={styles.label}>스캔</Text><View style={styles.card}><View style={styles.infoRow}><View style={styles.icon}><Feather name="maximize" size={18} color={colors.primary} /></View><View style={styles.text}><Text style={styles.title}>자동 문서 감지</Text><Text style={styles.sub}>문서 경계를 감지해 자릅니다.</Text></View></View><View style={styles.infoRow}><View style={styles.icon}><Feather name="layers" size={18} color={colors.primary} /></View><View style={styles.text}><Text style={styles.title}>기본 필터</Text><Text style={styles.sub}>컬러</Text></View></View></View></ScrollView>;
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, paddingHorizontal: 20, backgroundColor: colors.background },
-  label: { marginTop: 18, marginBottom: 8, color: colors.textMuted, fontSize: 12, fontWeight: "800" },
-  card: { borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
-  row: { minHeight: 64, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  icon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
-  text: { flex: 1 },
-  title: { fontSize: 13, fontWeight: "800", color: colors.text },
-  sub: { marginTop: 3, fontSize: 11, color: colors.textMuted },
-  relayCard: { borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 14 },
-  relayTitle: { fontSize: 13, fontWeight: "800", color: colors.text },
-  relayHelp: { marginTop: 4, fontSize: 10, color: colors.textMuted },
-  input: { marginTop: 10, height: 42, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, color: colors.text, backgroundColor: colors.background, fontSize: 11 },
-  saveButton: { marginTop: 10, height: 40, borderRadius: 10, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  saveText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
-  message: { marginTop: 8, fontSize: 10, color: colors.textMuted, textAlign: "center" },
-});
+const styles = StyleSheet.create({ root: { flex: 1, paddingHorizontal: 20, backgroundColor: colors.background }, scrollContent: { paddingBottom: 28 }, label: { marginTop: 18, marginBottom: 8, color: colors.textMuted, fontSize: 12, fontWeight: "800" }, card: { borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, overflow: "hidden" }, errorCard: { minHeight: 56, marginBottom: 10, paddingLeft: 14, flexDirection: "row", alignItems: "center", borderRadius: radius.md, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: "#FECACA" }, errorText: { flex: 1, color: colors.danger, fontSize: 11, lineHeight: 17 }, retryButton: { minWidth: 76, minHeight: 44, alignItems: "center", justifyContent: "center" }, retryText: { color: colors.danger, fontSize: 12, fontWeight: "800" }, emptyRow: { minHeight: 64, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 12 }, infoRow: { minHeight: 64, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }, icon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft }, text: { flex: 1 }, title: { fontSize: 13, fontWeight: "800", color: colors.text }, sub: { marginTop: 3, fontSize: 11, color: colors.textMuted }, pcHeader: { minHeight: 48, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }, pcHeaderTitle: { fontSize: 13, fontWeight: "800", color: colors.text }, pcHeaderCount: { fontSize: 11, color: colors.textMuted, fontWeight: "700" }, pcRow: { minHeight: 64, flexDirection: "row", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }, pcRowSelected: { backgroundColor: colors.primarySoft }, pcSelect: { minHeight: 64, flex: 1, paddingLeft: 14, flexDirection: "row", alignItems: "center", gap: 10 }, pcIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" }, pcText: { flex: 1 }, pcName: { fontSize: 12, fontWeight: "800", color: colors.text }, pcId: { marginTop: 3, fontSize: 10, color: colors.textMuted }, pcStatus: { paddingRight: 4, flexDirection: "row", alignItems: "center", gap: 5 }, statusDot: { width: 7, height: 7, borderRadius: 4 }, statusText: { fontSize: 10, fontWeight: "800" }, removeButton: { width: 44, height: 64, alignItems: "center", justifyContent: "center" }, addButton: { minHeight: 48, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, addText: { color: colors.primary, fontSize: 12, fontWeight: "800" } });

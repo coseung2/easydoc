@@ -1,0 +1,50 @@
+diff --git a/node_modules/react-native-pdf-to-image/android/src/main/java/com/pdftoimage/PdfToImageModule.java b/node_modules/react-native-pdf-to-image/android/src/main/java/com/pdftoimage/PdfToImageModule.java
+index 9080b77..6ff8b54 100644
+--- a/node_modules/react-native-pdf-to-image/android/src/main/java/com/pdftoimage/PdfToImageModule.java
++++ b/node_modules/react-native-pdf-to-image/android/src/main/java/com/pdftoimage/PdfToImageModule.java
+@@ -156,13 +156,18 @@ public class PdfToImageModule extends ReactContextBaseJavaModule {
+                   for (int i = 0; i < pageCount; i++) {
+                       PdfRenderer.Page page = renderer.openPage(i);
+                       try {
+-                          Bitmap bitmap = Bitmap.createBitmap(page.getWidth(), page.getHeight(), Bitmap.Config.ARGB_8888);
++                          double scale = Math.min(2.5, Math.sqrt(6000000.0 / ((double) page.getWidth() * page.getHeight())));
++                          Bitmap bitmap = Bitmap.createBitmap(Math.max(1, (int) (page.getWidth() * scale)), Math.max(1, (int) (page.getHeight() * scale)), Bitmap.Config.ARGB_8888);
+                           Canvas canvas = new Canvas(bitmap);
+                           canvas.drawColor(Color.WHITE);
+ 
+                           page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+-                          File output = this.saveImage(bitmap, this.context.getCacheDir());
+-                          files.pushString(output.getAbsolutePath());
++                          try {
++                              File output = this.saveImage(bitmap, this.context.getCacheDir());
++                              files.pushString(Uri.fromFile(output).toString());
++                          } finally {
++                              bitmap.recycle();
++                          }
+                       } finally {
+                           page.close();
+                       }
+@@ -178,17 +183,12 @@ public class PdfToImageModule extends ReactContextBaseJavaModule {
+           }
+       }
+ 
+-      private File saveImage(Bitmap finalBitmap, File cacheDir) {
+-          File file = new File(cacheDir.getAbsolutePath() + File.separator + System.currentTimeMillis() + "_pdf.png");
+-          if (file.exists()) file.delete();
+-          try {
+-              FileOutputStream out = new FileOutputStream(file);
+-              finalBitmap.compress(Bitmap.CompressFormat.PNG, 100, out);
+-              out.flush();
+-              out.close();
+-          } catch (Exception e) {
+-              e.printStackTrace();
+-              return null;
++      private File saveImage(Bitmap finalBitmap, File cacheDir) throws java.io.IOException {
++          File file = File.createTempFile("easydoc_pdf_", ".png", cacheDir);
++          try (FileOutputStream out = new FileOutputStream(file)) {
++              if (!finalBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
++                  throw new java.io.IOException("PDF page could not be saved");
++              }
+           }
+           return file;
+       }

@@ -1,14 +1,16 @@
 import { degrees, PDFDocument } from "pdf-lib";
 
+const LOAD_OPTIONS = { ignoreEncryption: false } as const;
+
 export async function pageCount(pdfBytes: Uint8Array): Promise<number> {
-  return (await PDFDocument.load(pdfBytes)).getPageCount();
+  return (await PDFDocument.load(pdfBytes, LOAD_OPTIONS)).getPageCount();
 }
 
 export async function mergePdfs(inputs: Uint8Array[]): Promise<Uint8Array> {
   if (inputs.length < 2) throw new Error("merge_requires_two_pdfs");
   const output = await PDFDocument.create();
   for (const bytes of inputs) {
-    const source = await PDFDocument.load(bytes);
+    const source = await PDFDocument.load(bytes, LOAD_OPTIONS);
     const pages = await output.copyPages(source, source.getPageIndices());
     for (const page of pages) output.addPage(page);
   }
@@ -16,7 +18,7 @@ export async function mergePdfs(inputs: Uint8Array[]): Promise<Uint8Array> {
 }
 
 export async function splitPdf(input: Uint8Array): Promise<Uint8Array[]> {
-  const source = await PDFDocument.load(input);
+  const source = await PDFDocument.load(input, LOAD_OPTIONS);
   const outputs: Uint8Array[] = [];
   for (let index = 0; index < source.getPageCount(); index += 1) {
     const document = await PDFDocument.create();
@@ -29,7 +31,7 @@ export async function splitPdf(input: Uint8Array): Promise<Uint8Array[]> {
 }
 
 export async function rotatePdf(input: Uint8Array, rotation: 90 | 180 | 270, pageIndexes?: number[]): Promise<Uint8Array> {
-  const document = await PDFDocument.load(input);
+  const document = await PDFDocument.load(input, LOAD_OPTIONS);
   const targets = new Set(pageIndexes ?? document.getPageIndices());
   for (const [index, page] of document.getPages().entries()) {
     if (!targets.has(index)) continue;
@@ -40,7 +42,7 @@ export async function rotatePdf(input: Uint8Array, rotation: 90 | 180 | 270, pag
 }
 
 export async function reorderAndDeletePdf(input: Uint8Array, pageOrder: number[]): Promise<Uint8Array> {
-  const source = await PDFDocument.load(input);
+  const source = await PDFDocument.load(input, LOAD_OPTIONS);
   if (pageOrder.length === 0) throw new Error("pdf_requires_page");
   const count = source.getPageCount();
   const seen = new Set<number>();
@@ -70,6 +72,6 @@ export async function imagesToPdf(inputs: ImageInput[]): Promise<Uint8Array> {
 }
 
 export async function optimizePdf(input: Uint8Array): Promise<Uint8Array> {
-  const document = await PDFDocument.load(input, { updateMetadata: false });
+  const document = await PDFDocument.load(input, { ...LOAD_OPTIONS, updateMetadata: false });
   return document.save({ useObjectStreams: true, addDefaultPage: false, updateFieldAppearances: false });
 }

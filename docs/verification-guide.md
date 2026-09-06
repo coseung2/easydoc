@@ -46,7 +46,7 @@ Record the resulting HTTPS Worker URL. Both the mobile app and Windows companion
 
 The relay stores pairing/session state in Durable Objects and forwards encrypted transfer frames. The normal transfer path does not persist document bodies.
 
-## 3. Build and run the Windows companion
+## 3. Remote-build and run the Windows companion
 
 Recommended Windows prerequisites:
 - Rust stable toolchain (`rustup`, `cargo`)
@@ -54,23 +54,20 @@ Recommended Windows prerequisites:
 - Microsoft Edge WebView2 Runtime
 - Node.js 22+ and npm
 
-Install dependencies and build:
+Native Windows builds are performed through the remote Windows build workflow.
+The resulting artifact is downloaded to the laptop and installed on the laptop
+itself; no local Tauri build is required.
+
+The build commands executed by the remote Windows job are:
 
 ```powershell
 npm ci
 npm --workspace @easydoc/desktop run build
 ```
 
-For development:
-
-```powershell
-npm --workspace @easydoc/desktop run dev
-```
-
 In the desktop app:
-1. Enter the deployed Cloudflare Worker HTTPS URL in **Relay URL** and apply it.
-2. Choose the receive folder if `Documents/EasyDoc` is not desired.
-3. Click **휴대폰 연결** to create a short-lived QR code.
+1. Choose the receive folder if `Documents/EasyDoc` is not desired.
+2. Click **휴대폰 연결** to create a short-lived QR code.
 4. Keep the app running; closing the window hides it to the system tray.
 
 Expected desktop behavior:
@@ -83,29 +80,24 @@ Expected desktop behavior:
 - shows completion notification
 - exposes Open / Reveal / Rename / Print / Delete actions in Scan Inbox
 
-## 4. Build and run the mobile app
+## 4. Remote-build and run the mobile app
 
 The mobile app uses native scanner/PDF modules, so use an Expo development/native build rather than Expo Go.
 
 Android:
 
-```bash
-npm ci
-npm --workspace @easydoc/mobile run android
-```
+Use the remote Android build workflow to produce the APK, then download it to
+the laptop and install it on the phone attached to the laptop. The laptop is
+not used for a native Expo build.
 
-iOS on macOS:
+iOS is outside the current build workflow. No iOS device or OCR execution is
+claimed as tested here.
 
-```bash
-npm ci
-npm --workspace @easydoc/mobile run ios
-```
-
-In **설정 → Relay**, enter the same Cloudflare Worker HTTPS URL used by the desktop. `EXPO_PUBLIC_RELAY_URL` can be used as an optional initial fallback, but the URL can be changed in-app.
+Configure the mobile app with the same Cloudflare Worker HTTPS URL used by the desktop. `EXPO_PUBLIC_RELAY_URL` can be used as an initial fallback.
 
 Then:
 1. Open **설정 → PC 연결**.
-2. Scan the QR shown by the desktop app.
+2. Scan the QR shown by the desktop app with the phone's default camera flow.
 3. Confirm the destination changes to online when the PC receiver is connected.
 4. Scan a document or import a local file.
 5. Send it to the paired PC.
@@ -166,22 +158,23 @@ Verify:
 - images → PDF
 - PDF → images
 - PDF optimization rewrite
+- OCR from photos and PDF pages; edit/copy/save recognized text
+- OCR-backed PDF search and matching-page navigation
 
 Known reader constraint: the current native PDF renderer does not expose text extraction. PDF page jump/thumbnail navigation is implemented through on-demand page-image rendering, while PDF text search remains a backend limitation. HWP/HWPX and high-fidelity Office rendering remain a separate research/implementation track as specified.
 
 ## 8. Verification boundaries
 
-The repository-level JavaScript/TypeScript tests, mobile/relay type checks, desktop web build, Worker dry-run, and local transfer harness were verified before handoff.
+The repository-level JavaScript/TypeScript tests and local transfer harness are
+separate from native validation. Native Windows and Android builds are remote;
+their artifacts are installed on the laptop and its attached phone. iOS native
+validation is not claimed.
 
 In the earlier Linux development container, native checks stopped at unavailable platform libraries and cross-target tooling. Those results did not establish a native Windows build.
 
-The current Windows clone has now completed a native Tauri release build with Rust stable, MSVC, and WebView2. It produced both MSI and NSIS installers, and the release executable passed a startup smoke check without opening an HTTP listener. The bundle icon paths are explicit in `tauri.conf.json` and covered by a repository test.
-
-An Android release APK was also built from a clean Expo prebuild and installed on a physical SM-A205S running Android 11. Cold start, home/settings rendering, bottom navigation, safe-area handling, and Android back behavior were verified at 720×1560. A Hermes startup crash caused by `fast-png` requesting unsupported `latin1` decoding was fixed with a compatibility polyfill and regression test.
-
 The current environment still does not provide completed verification for:
-- iOS native device execution
 - physical document capture and the full scanner/edit/save flow
+- iOS native execution and OCR
 - the actual school firewall/proxy/network
 
 External file drag-out from Scan Inbox into another desktop/browser application is also not wired in this handoff. Tauri v2 requires an additional native drag-out integration for that behavior; it should be added only with a Windows-native build/test loop rather than as an unverified dependency.

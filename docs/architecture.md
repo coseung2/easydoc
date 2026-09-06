@@ -61,6 +61,8 @@ Responsibilities:
 - Stream encrypted chunks
 - Resume interrupted transfers
 - Show destination presence and transfer progress
+- Run local OCR on photos and PDF pages, with editable/copyable text and TXT export
+- Search PDF pages through OCR results
 
 ## Desktop application
 
@@ -68,7 +70,7 @@ Technology:
 - Tauri
 - Rust core
 - React + TypeScript UI
-- SQLite for device and transfer state
+- JSON files for device/transfer state and OS secure storage for private credentials
 
 Responsibilities:
 - Start with Windows and remain available through the system tray
@@ -145,6 +147,13 @@ Desktop displays a short-lived QR code containing data conceptually equivalent t
 The pairing token must be single-use and short-lived.
 
 Private keys never leave their originating device.
+
+The desktop alias is included when a QR pairing is created. The desktop can update
+its local alias and newly generated QR payloads, but the current protocol does not
+push alias changes to phones that already stored the pairing; those phones need to
+pair again to receive the new display name.
+
+On mobile, QR pairing is started with the device's default camera flow.
 
 ## Transfer lifecycle
 

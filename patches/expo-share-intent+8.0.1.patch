@@ -1,0 +1,46 @@
+diff --git a/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt b/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
+index ff5b100..37f28e9 100644
+--- a/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
++++ b/node_modules/expo-share-intent/android/src/main/java/expo/modules/shareintent/ExpoShareIntentModule.kt
+@@ -66,13 +66,21 @@ class ExpoShareIntentModule : Module() {
+                     "filePath" to instance?.getAbsolutePath(uri),
+                 )
+             }
+-            val queryResult: Cursor = resolver.query(uri, null, null, null, null)!!
+-            queryResult.moveToFirst()
+-            val fileName = queryResult.getString(queryResult.getColumnIndex(OpenableColumns.DISPLAY_NAME))
+-            val fileSize = queryResult.getString(queryResult.getColumnIndex(OpenableColumns.SIZE))
+-            queryResult.close()
++            val queryResult: Cursor? = resolver.query(uri, null, null, null, null)
++            var fileName: String? = null
++            var fileSize: String? = null
++            if (queryResult != null) {
++                queryResult.use { cursor ->
++                    if (cursor.moveToFirst()) {
++                        val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
++                        val sizeColumn = cursor.getColumnIndex(OpenableColumns.SIZE)
++                        if (nameColumn >= 0) fileName = cursor.getString(nameColumn)
++                        if (sizeColumn >= 0) fileSize = cursor.getString(sizeColumn)
++                    }
++                }
++            }
+ 
+-            val mimeType = resolver.getType(uri)!!
++            val mimeType = resolver.getType(uri) ?: "application/octet-stream"
+ 
+             var mediaWidth: String? = null;
+             var mediaHeight: String? = null;
+@@ -153,6 +161,13 @@ class ExpoShareIntentModule : Module() {
+                     } else {
+                         notifyError("empty uris array for file sharing: " + intent.action)
+                     }
++                } else if (intent.action == Intent.ACTION_VIEW) {
++                    val uri = intent.data
++                    if (uri != null) {
++                        notifyShareIntent(mapOf( "files" to arrayOf(getFileInfo(uri)), "type" to "file"))
++                    } else {
++                        notifyError("empty uri for file viewing: " + intent.action)
++                    }
+                 } else {
+                     notifyError("Invalid action for file sharing: " + intent.action)
+                 }

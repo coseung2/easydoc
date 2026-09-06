@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "patch-package",
     "test": "node --test packages/protocol/test/*.test.ts packages/crypto/test/*.test.ts packages/pdf-tools/test/*.test.ts packages/image-processing/test/*.test.ts apps/relay/test/*.test.ts apps/desktop/test/*.test.ts apps/mobile/test/*.test.ts test/*.test.ts",
     "test:protocol": "node --test packages/protocol/test/*.test.ts",
     "test:relay": "node --test apps/relay/test/*.test.ts",
@@ -22,5 +23,8 @@
     "build:desktop-ui": "npm --workspace @easydoc/desktop run build:vite",
     "check:relay": "wrangler deploy --dry-run --config apps/relay/wrangler.toml",
     "verify": "npm test && npm run typecheck:mobile && npm run typecheck:relay && npm run build:desktop-ui && npm run check:relay"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
   }
 }

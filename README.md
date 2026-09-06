@@ -26,9 +26,10 @@ apps/
   relay/    Cloudflare Workers + Durable Objects
 
 packages/
-  protocol/ shared transfer protocol
-  crypto/   end-to-end encryption helpers
-  types/    shared domain types
+  crypto/           end-to-end encryption helpers
+  image-processing/ scan image processing
+  pdf-tools/        PDF operations
+  protocol/         shared transfer protocol
 ```
 
 ## Core features
@@ -37,6 +38,8 @@ packages/
 - Document scanning with edge detection, crop, perspective correction, rotation, filters, and multi-page capture
 - PDF generation and local document library
 - PDF/image viewing
+- On-device OCR for photos and PDFs, with editable/copyable text and TXT export
+- OCR-backed PDF search with matching-page navigation
 - HWP/HWPX and Office document viewing in later milestones
 - Presentation mode for PDF/PPT-style documents
 - Automatic transfer to a paired desktop
@@ -121,7 +124,8 @@ The repository now contains an end-to-end MVP implementation path:
 - Expo document scanner flow with page reorder/delete/retake/rotation and Color/Grayscale/B&W processing
 - local PDF generation/document library and early PDF tools
 - PDF/image/TXT viewing plus PDF presentation mode
-- Tauri Windows companion with tray/autostart, configurable receive folder/relay URL, resumable `.part` receiver, checksum verification, notification, and Scan Inbox actions
+- Tauri Windows companion with tray/autostart, configurable receive folder, resumable `.part` receiver, checksum verification, notification, and Scan Inbox actions
+- Local OCR module: Android bundled ML Kit Korean text recognition and an Apple Vision implementation
 
 Run the repository checks with:
 
@@ -135,8 +139,11 @@ For Cloudflare deployment, native app builds, and the real school-network accept
 ### Deliberately separate/later tracks
 
 - high-fidelity HWP/HWPX and Office rendering
-- OCR/searchable PDF, signature, watermark, and password protection
+- Searchable-PDF authoring, signature, watermark, and password protection
 - optional encrypted R2 offline queue
 - desktop-initiated scan requests
 
-The development container cannot validate the Windows Rust binary, physical mobile native modules, or the school firewall/proxy. Those are real-environment handoff checks, not claimed as completed validation.
+Use the remote build workflow for native artifacts, then install the Windows
+desktop artifact on the laptop and install the Android artifact on the phone
+attached to the laptop. The current documentation does not claim iOS OCR or
+native iOS execution has been tested.
