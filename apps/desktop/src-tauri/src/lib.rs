@@ -722,8 +722,11 @@ async fn revoke_pairing(state: State<'_, Arc<AppState>>, room_id: String) -> Res
         .cloned()
         .ok_or("pairing_not_found")?;
     if let Err(error) = revoke_remote_pairing(&settings, &pairing).await {
-        let missing_credential = error.to_lowercase().contains("no matching entry") || error.to_lowercase().contains("no entry");
-        if !missing_credential && error != "pairing_invalid" { return Err(error); }
+        let missing_credential = error.to_lowercase().contains("no matching entry")
+            || error.to_lowercase().contains("no entry");
+        if !missing_credential && error != "pairing_invalid" {
+            return Err(error);
+        }
     }
     delete_credential("pairing-bootstrap", &pairing.room_id)?;
     let delete_identity = {
@@ -866,9 +869,21 @@ async fn receiver_loop(
     let room_id = pairing.room_id.clone();
     let result = receiver_connection(app, state.clone(), settings, pairing).await;
     if matches!(result, Err(ref error) if error == "pairing_invalid") {
-        update_receiver_status(&state, &room_id, Some(false), Some(false), Some(result.clone().unwrap_err()));
+        update_receiver_status(
+            &state,
+            &room_id,
+            Some(false),
+            Some(false),
+            Some(result.clone().unwrap_err()),
+        );
     } else {
-        update_receiver_status(&state, &room_id, None, Some(false), result.as_ref().err().cloned());
+        update_receiver_status(
+            &state,
+            &room_id,
+            None,
+            Some(false),
+            result.as_ref().err().cloned(),
+        );
     }
     result
 }
@@ -1165,7 +1180,11 @@ fn print_file(path: String) -> Result<(), String> {
             .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map_err(|e| e.to_string())?;
-        if result.status.success() { Ok(()) } else { Err("print_failed".into()) }
+        if result.status.success() {
+            Ok(())
+        } else {
+            Err("print_failed".into())
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1200,31 +1219,15 @@ fn reveal_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
 }
 
 pub fn run() {
-    let (settings, pairings, inbox) = load_initial();
-    let receiver_status = pairings
-        .iter()
-        .map(|pairing| {
-            (
-                pairing.room_id.clone(),
-                ReceiverStatus {
-                    authorized: pairing.mobile_id.is_some(),
-                    connected: false,
-                    last_error: None,
-                },
-            )
-        })
-        .collect();
-    let state = Arc::new(AppState {
-        settings: Mutex::new(settings),
-        pairings: Mutex::new(pairings),
-        inbox: Mutex::new(inbox),
-        receiver_tasks: Mutex::new(HashMap::new()),
-        receiver_status: Mutex::new(receiver_status),
-        pairing_write: tokio::sync::Mutex::new(()),
-        inbox_write: tokio::sync::Mutex::new(()),
-        receive_write: tokio::sync::Mutex::new(()),
-    });
     tauri::Builder::default()
+        // Reject duplicate launches before loading or writing shared settings.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--background"]),
@@ -1232,8 +1235,32 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(state)
         .setup(|app| {
+            let (settings, pairings, inbox) = load_initial();
+            let receiver_status = pairings
+                .iter()
+                .map(|pairing| {
+                    (
+                        pairing.room_id.clone(),
+                        ReceiverStatus {
+                            authorized: pairing.mobile_id.is_some(),
+                            connected: false,
+                            last_error: None,
+                        },
+                    )
+                })
+                .collect();
+            let state = Arc::new(AppState {
+                settings: Mutex::new(settings),
+                pairings: Mutex::new(pairings),
+                inbox: Mutex::new(inbox),
+                receiver_tasks: Mutex::new(HashMap::new()),
+                receiver_status: Mutex::new(receiver_status),
+                pairing_write: tokio::sync::Mutex::new(()),
+                inbox_write: tokio::sync::Mutex::new(()),
+                receive_write: tokio::sync::Mutex::new(()),
+            });
+            app.manage(state);
             let _ = app.autolaunch().enable();
             let show_i = MenuItem::with_id(app, "show", "EasyDoc 열기", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
@@ -1402,7 +1429,13 @@ mod tests {
         });
         update_receiver_status(&state, "room_a", Some(true), Some(true), None);
         update_receiver_status(&state, "room_b", Some(true), Some(true), None);
-        update_receiver_status(&state, "room_a", None, Some(false), Some("network_error".into()));
+        update_receiver_status(
+            &state,
+            "room_a",
+            None,
+            Some(false),
+            Some("network_error".into()),
+        );
         assert!(state.settings.lock().unwrap().connected);
         update_receiver_status(&state, "room_b", None, Some(false), None);
         assert!(!state.settings.lock().unwrap().connected);
