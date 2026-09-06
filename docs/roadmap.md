@@ -69,6 +69,16 @@ Mobile:
 - Destination presence
 - Automatic retry when desktop returns online
 
+Open interaction-feedback work from the 2026-09-07 source review:
+
+- Desktop save, button, and dialog feedback
+- Mobile send-queue duplication, save/transfer split, and stall recovery
+- Desktop alias synchronization to already-paired phones
+- Shared PDF page-image and OCR result caching
+- Document-list and polling refresh optimization
+
+See [`ux-review.md`](ux-review.md).
+
 ## Milestone 3 — PDF tools
 
 - Merge PDFs

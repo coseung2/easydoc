@@ -136,6 +136,10 @@ npm run verify
 
 For Cloudflare deployment, native app builds, and the real school-network acceptance matrix, see [`docs/verification-guide.md`](docs/verification-guide.md).
 
+Interaction feedback, persistence, caching, and polling issues found in the
+2026-09-07 source review are recorded in [`docs/ux-review.md`](docs/ux-review.md).
+That review is a backlog, not completed product work.
+
 ### Deliberately separate/later tracks
 
 - high-fidelity HWP/HWPX and Office rendering
