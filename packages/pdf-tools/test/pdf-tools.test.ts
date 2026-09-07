@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PDFDocument } from "pdf-lib";
-import { mergePdfs, optimizePdf, pageCount, reorderAndDeletePdf, rotatePdf, splitPdf } from "../src/index.ts";
+import { imagesToPdf, mergePdfs, optimizePdf, pageCount, reorderAndDeletePdf, rotatePdf, splitPdf } from "../src/index.ts";
+import { redJpeg, redPng } from "./fixtures.ts";
 
 async function sample(count: number) {
   const document = await PDFDocument.create();
@@ -33,6 +34,19 @@ test("rotation updates target pages only", async () => {
   const document = await PDFDocument.load(result);
   assert.equal(document.getPage(0).getRotation().angle, 0);
   assert.equal(document.getPage(1).getRotation().angle, 90);
+});
+
+test("images to PDF accepts JPEG and PNG and produces readable A4 pages", async () => {
+  const output = await imagesToPdf([
+    { bytes: redJpeg, mimeType: "image/jpeg" },
+    { bytes: redPng, mimeType: "image/png" },
+  ]);
+  const document = await PDFDocument.load(output);
+  assert.equal(document.getPageCount(), 2);
+  for (const page of document.getPages()) {
+    assert.ok(Math.abs(page.getWidth() - 595.28) < 0.01);
+    assert.ok(Math.abs(page.getHeight() - 841.89) < 0.01);
+  }
 });
 
 test("optimization keeps the document readable", async () => {

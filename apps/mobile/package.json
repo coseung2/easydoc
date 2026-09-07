@@ -14,6 +14,7 @@
   "dependencies": {
     "@easydoc/crypto": "0.0.1",
     "@easydoc/image-processing": "0.0.1",
+    "@easydoc/pdf-tools": "0.0.1",
     "@expo/vector-icons": "^15.0.0",
     "@kishannareshpal/expo-pdf": "^0.3.2",
     "@noble/hashes": "^2.4.0",
@@ -26,7 +27,6 @@
     "expo-share-intent": "^8.0.1",
     "expo-sharing": "~57.0.18",
     "expo-sqlite": "~57.0.2",
-    "pdf-lib": "^1.17.1",
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-document-scanner-plugin": "^2.0.4",

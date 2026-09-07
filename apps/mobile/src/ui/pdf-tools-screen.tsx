@@ -5,7 +5,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { convert as pdfToImages } from "react-native-pdf-to-image";
-import { imagesToPdf, mergePdfs, optimizePdf, pageCount, reorderAndDeletePdf, rotatePdf, splitPdf } from "../../../../packages/pdf-tools/src/index.ts";
+import { imagesToPdf, mergePdfs, optimizePdf, pageCount, reorderAndDeletePdf, rotatePdf, splitPdf } from "@easydoc/pdf-tools";
 import { importLocalFile, saveGeneratedPdf, type LocalDocument } from "../documents/store.ts";
 import { discardRenderedPages } from "../documents/rendered-pages";
 import { ScreenHeader } from "./components";

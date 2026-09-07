@@ -1,4 +1,5 @@
 import type * as SQLite from "expo-sqlite";
+import { imagesToPdf, type ImageInput } from "@easydoc/pdf-tools";
 import { copyFileAndMeasure } from "./file-copy.ts";
 
 export type LocalDocument = {
@@ -128,39 +129,29 @@ export async function deleteLocalDocument(id: string): Promise<void> {
   }
 }
 
-function fitImage(width: number, height: number, maxWidth: number, maxHeight: number) {
-  const scale = Math.min(maxWidth / width, maxHeight / height);
-  return { width: width * scale, height: height * scale };
-}
-
 export async function createScannedPdf(pageUris: string[], title = `스캔_${new Date().toISOString().slice(0, 10)}.pdf`): Promise<LocalDocument> {
   if (pageUris.length === 0) throw new Error("scan_has_no_pages");
   const { Directory, File, Paths } = await import("expo-file-system");
-  const { PDFDocument } = await import("pdf-lib");
   const id = crypto.randomUUID();
   const documentDirectory = new Directory(Paths.document, "EasyDoc", "scans", id);
   documentDirectory.create({ intermediates: true, idempotent: true });
-  const pdf = await PDFDocument.create();
-  const pageWidth = 595.28;
-  const pageHeight = 841.89;
-  const margin = 18;
+  const pdfInputs: ImageInput[] = [];
 
   for (let index = 0; index < pageUris.length; index += 1) {
     const source = new File(pageUris[index]!);
-    const bytes = await source.bytes();
-    let image;
-    try { image = await pdf.embedJpg(bytes); } catch { image = await pdf.embedPng(bytes); }
-    const fitted = fitImage(image.width, image.height, pageWidth - margin * 2, pageHeight - margin * 2);
-    const page = pdf.addPage([pageWidth, pageHeight]);
-    page.drawImage(image, { x: (pageWidth - fitted.width) / 2, y: (pageHeight - fitted.height) / 2, width: fitted.width, height: fitted.height });
     const extension = source.extension || ".jpg";
+    const normalizedExtension = extension.toLowerCase();
+    pdfInputs.push({
+      bytes: await source.bytes(),
+      mimeType: source.type || (normalizedExtension.endsWith(".png") ? "image/png" : "image/jpeg"),
+    });
     const pageFile = new File(documentDirectory, `page_${String(index + 1).padStart(3, "0")}${extension.startsWith(".") ? extension : `.${extension}`}`);
     await copyFileAndMeasure<typeof pageFile>(source, pageFile);
   }
 
   const pdfFile = new File(documentDirectory, "document.pdf");
   pdfFile.create({ overwrite: true, intermediates: true });
-  pdfFile.write(await pdf.save({ useObjectStreams: true }));
+  pdfFile.write(await imagesToPdf(pdfInputs));
   const createdAt = Date.now();
   const document: LocalDocument = { id, title, uri: pdfFile.uri, pageCount: pageUris.length, size: pdfFile.size, mimeType: "application/pdf", createdAt, folderId: null };
   const db = await database();
