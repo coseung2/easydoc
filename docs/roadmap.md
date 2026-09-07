@@ -137,6 +137,20 @@ Flow:
 - User opens scanner
 - Completed scan automatically routes back to requesting desktop/folder
 
+## Engineering modernization track
+
+Dependency and native-processing modernization is tracked separately from product milestones so that infrastructure changes do not silently expand feature scope.
+
+Execution order and acceptance gates are defined in [`dependency-modernization-plan.md`](dependency-modernization-plan.md).
+
+The approved direction is:
+
+- normalize Expo / React Native / TypeScript compatibility first
+- isolate and migrate the PDF engine
+- benchmark a native OpenCV image-processing backend behind an EasyDoc-owned adapter
+- move PDF thumbnail/presentation rendering toward page-at-a-time rasterization behind an adapter
+- keep the current scanner, PDF viewer, crypto, Expo storage, Tauri/Tokio, and relay stacks unless measurable evidence justifies a later change
+
 ## Product principle
 
 Optimize for this recurring outcome:
