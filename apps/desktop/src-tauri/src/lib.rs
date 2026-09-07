@@ -406,18 +406,40 @@ async fn read_pairings() -> Vec<PairingState> {
     pairings
 }
 
-async fn persist_pairings(state: &Arc<AppState>) -> Result<(), String> {
+async fn mutate_pairings<T, F>(state: &Arc<AppState>, update: F) -> Result<T, String>
+where
+    F: FnOnce(&mut Vec<PairingState>) -> Result<(T, bool), String>,
+{
     let _guard = state.pairing_write.lock().await;
-    let pairings = state.pairings.lock().unwrap().clone();
-    write_json(&pairings_path(), &pairings).await?;
-    emit_changed(state, "pairings");
-    Ok(())
+    let authoritative_alias = state.settings.lock().unwrap().desktop_alias.clone();
+    let mut next = state.pairings.lock().unwrap().clone();
+    let mut changed = false;
+    for pairing in &mut next {
+        if pairing.desktop_alias != authoritative_alias {
+            pairing.desktop_alias = authoritative_alias.clone();
+            changed = true;
+        }
+    }
+    let (value, update_changed) = update(&mut next)?;
+    changed |= update_changed;
+    if changed {
+        // Commit the durable snapshot first; in-memory state remains unchanged
+        // if the write fails, so callers can safely retry the mutation.
+        write_json(&pairings_path(), &next).await?;
+        *state.pairings.lock().unwrap() = next;
+        emit_changed(state, "pairings");
+    }
+    Ok(value)
+}
+
+async fn write_inbox_snapshot(state: &Arc<AppState>, inbox: &[InboxItem]) -> Result<(), String> {
+    let _guard = state.inbox_write.lock().await;
+    write_json(&inbox_path(), &inbox).await
 }
 
 async fn persist_inbox(state: &Arc<AppState>) -> Result<(), String> {
-    let _guard = state.inbox_write.lock().await;
     let inbox = state.inbox.lock().unwrap().clone();
-    write_json(&inbox_path(), &inbox).await?;
+    write_inbox_snapshot(state, &inbox).await?;
     emit_changed(state, "inbox");
     Ok(())
 }
@@ -444,7 +466,20 @@ fn load_initial() -> (DesktopSettings, Vec<PairingState>, Vec<InboxItem>) {
             });
         settings.desktop_alias = normalized_desktop_alias(&settings.desktop_alias);
         settings.connected = false;
-        let pairing = read_pairings().await;
+        let mut pairing = read_pairings().await;
+        // `settings.json` is authoritative for the desktop display name. Keep
+        // legacy pairing snapshots aligned when loading, but do not make startup
+        // fail if this best-effort migration write is unavailable.
+        let mut aliases_reconciled = false;
+        for item in &mut pairing {
+            if item.desktop_alias != settings.desktop_alias {
+                item.desktop_alias = settings.desktop_alias.clone();
+                aliases_reconciled = true;
+            }
+        }
+        if aliases_reconciled {
+            let _ = write_json(&pairings_path(), &pairing).await;
+        }
         let inbox = read_json(&inbox_path()).await.unwrap_or_default();
         (
             DesktopSettings {
@@ -499,19 +534,22 @@ fn update_receiver_status(
     emit_changed(state, "pairings");
 }
 
-fn remember_mobile_id(state: &Arc<AppState>, room_id: &str, mobile_id: &str) -> bool {
-    let mut pairings = state.pairings.lock().unwrap();
-    let Some(pairing) = pairings
-        .iter_mut()
-        .find(|pairing| pairing.room_id == room_id)
-    else {
-        return false;
-    };
-    if pairing.mobile_id.as_deref() == Some(mobile_id) {
-        return false;
-    }
-    pairing.mobile_id = Some(mobile_id.to_string());
-    true
+async fn remember_mobile_id(
+    state: &Arc<AppState>,
+    room_id: &str,
+    mobile_id: &str,
+) -> Result<bool, String> {
+    mutate_pairings(state, |pairings| {
+        let Some(pairing) = pairings.iter_mut().find(|pairing| pairing.room_id == room_id) else {
+            return Ok((false, false));
+        };
+        if pairing.mobile_id.as_deref() == Some(mobile_id) {
+            return Ok((false, false));
+        }
+        pairing.mobile_id = Some(mobile_id.to_string());
+        Ok((true, true))
+    })
+    .await
 }
 
 fn pairing_summaries(state: &Arc<AppState>) -> Vec<PairingSummary> {
@@ -586,14 +624,10 @@ async fn set_desktop_alias(
     snapshot.desktop_alias = alias.to_string();
     write_json(&settings_path(), &snapshot).await?;
     // Settings is the authoritative persisted name; publishing follows that write.
-    // Pairing labels are legacy snapshots and are reconciled on the next save.
     state.settings.lock().unwrap().desktop_alias = alias.to_string();
-    {
-        let mut pairings = state.pairings.lock().unwrap();
-        for pairing in pairings.iter_mut() {
-            pairing.desktop_alias = alias.to_string();
-        }
-    }
+    // Pairing aliases are legacy snapshots. Reconcile them when possible, but
+    // never report a failed alias save after the authoritative settings write.
+    let _ = mutate_pairings(state.inner(), |_pairings| Ok(((), false))).await;
     state.alias_changed.send_replace(alias.to_string());
     emit_changed(state.inner(), "settings");
     Ok(snapshot)
@@ -659,8 +693,19 @@ async fn create_pairing(
         mobile_id: None,
         mobile_alias: None,
     };
-    state.pairings.lock().unwrap().push(pairing_state);
-    persist_pairings(state.inner()).await?;
+    if let Err(error) = mutate_pairings(state.inner(), |pairings| {
+        pairings.push(pairing_state);
+        Ok(((), true))
+    })
+    .await
+    {
+        // The keyring entries are not useful without the durable pairing record.
+        // Best-effort cleanup avoids leaving credentials for a pairing the user
+        // was told did not get created.
+        let _ = delete_credential("pairing-bootstrap", &pairing_payload.room_id);
+        let _ = delete_credential("device-private", &pairing_payload.desktop_id);
+        return Err(error);
+    }
     refresh_settings_flags(state.inner());
     start_receiver_supervisor(app, state.inner().clone());
     Ok(PairingView {
@@ -681,15 +726,18 @@ async fn set_pairing_label(
         return Err("invalid_mobile_alias".into());
     }
     let label = (!label.is_empty()).then(|| label.to_string());
-    {
-        let mut pairings = state.pairings.lock().unwrap();
+    mutate_pairings(state.inner(), |pairings| {
         let pairing = pairings
             .iter_mut()
             .find(|pairing| pairing.room_id == room_id)
             .ok_or("pairing_not_found")?;
+        if pairing.mobile_alias == label {
+            return Ok(((), false));
+        }
         pairing.mobile_alias = label;
-    }
-    persist_pairings(state.inner()).await?;
+        Ok(((), true))
+    })
+    .await?;
     Ok(pairing_summaries(state.inner()))
 }
 
@@ -748,18 +796,23 @@ async fn revoke_pairing(state: State<'_, Arc<AppState>>, room_id: String) -> Res
             return Err(error);
         }
     }
-    delete_credential("pairing-bootstrap", &pairing.room_id)?;
-    let delete_identity = {
-        let mut pairings = state.pairings.lock().unwrap();
+    let delete_identity = mutate_pairings(state.inner(), |pairings| {
+        let before = pairings.len();
         pairings.retain(|item| item.room_id != room_id);
-        !pairings
-            .iter()
-            .any(|item| item.device_id == pairing.device_id)
-    };
+        if pairings.len() == before {
+            return Err("pairing_not_found".into());
+        }
+        let delete_identity = !pairings.iter().any(|item| item.device_id == pairing.device_id);
+        Ok((delete_identity, true))
+    })
+    .await?;
     abort_receiver(state.inner(), &room_id);
-    persist_pairings(state.inner()).await?;
+    // The durable removal above is authoritative. Credential cleanup is
+    // best-effort so a keyring failure cannot make a removed pairing resurrect
+    // from disk on the next launch.
+    let _ = delete_credential("pairing-bootstrap", &pairing.room_id);
     if delete_identity {
-        delete_credential("device-private", &pairing.device_id)?;
+        let _ = delete_credential("device-private", &pairing.device_id);
     }
     refresh_settings_flags(state.inner());
     Ok(())
@@ -925,9 +978,7 @@ async fn receiver_connection(
     update_receiver_status(&state, &pairing.room_id, Some(true), Some(false), None);
     let peer_public_key = session.peer_public_key.clone();
     if let Some(peer_device_id) = session.peer_device_id.as_deref() {
-        if remember_mobile_id(&state, &pairing.room_id, peer_device_id) {
-            persist_pairings(&state).await?;
-        }
+        remember_mobile_id(&state, &pairing.room_id, peer_device_id).await?;
     }
     let (socket, _) = connect_async(ws_url(&settings.relay_base_url, &session.token)?)
         .await
@@ -953,9 +1004,7 @@ async fn receiver_connection(
                     online,
                 }) => {
                     if role == "mobile" && online {
-                        if remember_mobile_id(&state, &pairing.room_id, &device_id) {
-                            persist_pairings(&state).await?;
-                        }
+                        remember_mobile_id(&state, &pairing.room_id, &device_id).await?;
                         let alias = state.settings.lock().unwrap().desktop_alias.clone();
                         write.send(desktop_profile_message(&pairing.device_id, &alias)).await.map_err(|e| e.to_string())?;
                     }
@@ -1185,29 +1234,73 @@ async fn rename_file(
     if fs::metadata(&target).await.is_ok() {
         return Err("filename_exists".into());
     }
+    let previous = state.inbox.lock().unwrap().clone();
+    let item_index = previous
+        .iter()
+        .position(|item| item.path == path)
+        .ok_or("transfer_not_found")?;
+    let mut next = previous.clone();
+    next[item_index].filename = trimmed.to_string();
+    next[item_index].path = target.to_string_lossy().into_owned();
+    let updated = next[item_index].clone();
     fs::rename(&current, &target)
         .await
         .map_err(|e| e.to_string())?;
-    let updated = {
-        let mut inbox = state.inbox.lock().unwrap();
-        let item = inbox
-            .iter_mut()
-            .find(|item| item.path == path)
-            .ok_or("transfer_not_found")?;
-        item.filename = trimmed.to_string();
-        item.path = target.to_string_lossy().into_owned();
-        item.clone()
-    };
-    persist_inbox(state.inner()).await?;
+    if let Err(error) = write_inbox_snapshot(state.inner(), &next).await {
+        // Restore the old path when the index write fails. If the filesystem
+        // itself refuses the rollback, prefer a durable new index over leaving
+        // the app pointing at a path that no longer exists.
+        if fs::rename(&target, &current).await.is_ok() {
+            return Err(error);
+        }
+        if write_inbox_snapshot(state.inner(), &next).await.is_ok() {
+            *state.inbox.lock().unwrap() = next;
+            emit_changed(state.inner(), "inbox");
+            return Ok(updated);
+        }
+        return Err(format!("{error}; file rename rollback failed"));
+    }
+    *state.inbox.lock().unwrap() = next;
+    emit_changed(state.inner(), "inbox");
     Ok(updated)
 }
 
 #[tauri::command]
 async fn delete_file(state: State<'_, Arc<AppState>>, path: String) -> Result<(), String> {
     let _receive_guard = state.receive_write.lock().await;
-    fs::remove_file(&path).await.map_err(|e| e.to_string())?;
-    state.inbox.lock().unwrap().retain(|item| item.path != path);
-    persist_inbox(state.inner()).await
+    let current = PathBuf::from(&path);
+    let parent = current.parent().ok_or("invalid_path")?;
+    let previous = state.inbox.lock().unwrap().clone();
+    if !previous.iter().any(|item| item.path == path) {
+        return Err("transfer_not_found".into());
+    }
+    let mut next = previous.clone();
+    next.retain(|item| item.path != path);
+    let staged = parent.join(format!(".easydoc-delete-{}.trash", Uuid::new_v4()));
+    // Stage the file with a reversible rename. The durable index is committed
+    // before the staged file is finally removed, so a failed index write cannot
+    // silently lose the user's document.
+    fs::rename(&current, &staged)
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Err(error) = write_inbox_snapshot(state.inner(), &next).await {
+        if fs::rename(&staged, &current).await.is_ok() {
+            return Err(error);
+        }
+        if write_inbox_snapshot(state.inner(), &next).await.is_ok() {
+            *state.inbox.lock().unwrap() = next;
+            emit_changed(state.inner(), "inbox");
+            let _ = fs::remove_file(&staged).await;
+            return Ok(());
+        }
+        return Err(format!("{error}; file delete rollback failed"));
+    }
+    *state.inbox.lock().unwrap() = next;
+    emit_changed(state.inner(), "inbox");
+    // A cleanup failure leaves the file in a hidden, recoverable staging path,
+    // but must not report a false failure after the index is durably updated.
+    let _ = fs::remove_file(&staged).await;
+    Ok(())
 }
 
 #[tauri::command]
