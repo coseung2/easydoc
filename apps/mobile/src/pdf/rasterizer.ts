@@ -111,16 +111,21 @@ export function createCachedPdfPageRasterizer(
 
 export type FullDocumentPdfConverter = (uri: string) => Promise<{ outputFiles?: string[] | null }>;
 
-export function createFullDocumentPdfRasterizer(convert: FullDocumentPdfConverter): PdfPageRasterizer {
+export function createFullDocumentPdfRasterizer(convert: FullDocumentPdfConverter, maxDocuments = 4): PdfPageRasterizer {
   const cache = new Map<string, Promise<string[]>>();
 
   const pages = (uri: string) => {
     let pending = cache.get(uri);
-    if (!pending) {
-      pending = convert(uri).then((result) => result.outputFiles ?? []);
+    if (pending) {
+      // Keep recently used document conversions at the end of the LRU map.
+      cache.delete(uri);
       cache.set(uri, pending);
-      pending.catch(() => cache.delete(uri));
+      return pending;
     }
+    pending = convert(uri).then((result) => result.outputFiles ?? []);
+    cache.set(uri, pending);
+    while (cache.size > Math.max(1, maxDocuments)) cache.delete(cache.keys().next().value as string);
+    pending.catch(() => { if (cache.get(uri) === pending) cache.delete(uri); });
     return pending;
   };
 
