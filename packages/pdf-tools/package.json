@@ -5,5 +5,5 @@
   "type": "module",
   "exports": "./src/index.ts",
   "scripts": { "test": "node --test test/*.test.ts" },
-  "dependencies": { "pdf-lib": "^1.17.1" }
+  "dependencies": { "@cantoo/pdf-lib": "^2.9.1" }
 }

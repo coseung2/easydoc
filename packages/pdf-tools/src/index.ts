@@ -1,4 +1,4 @@
-import { degrees, PDFDocument } from "pdf-lib";
+import { degrees, PDFDocument } from "@cantoo/pdf-lib";
 
 const LOAD_OPTIONS = { ignoreEncryption: false } as const;
 
