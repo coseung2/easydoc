@@ -15,6 +15,15 @@ export type QueuedTransfer = {
 };
 
 let databasePromise: ReturnType<typeof SQLite.openDatabaseAsync> | null = null;
+let queueWrite: Promise<unknown> = Promise.resolve();
+
+// Expo exclusive transactions use separate native connections. Serialize local
+// writers too, so rapid taps/status updates do not fail with SQLITE_BUSY.
+function withQueueWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const result = queueWrite.then(operation, operation);
+  queueWrite = result.catch(() => undefined);
+  return result;
+}
 
 async function initializeDatabase() {
   const db = await SQLite.openDatabaseAsync("easydoc.db");
@@ -79,6 +88,7 @@ function fromRow(row: TransferRow): QueuedTransfer {
 }
 
 export async function enqueueTransfer(input: { uri: string; name: string; mime: string; target: PairingRef }): Promise<QueuedTransfer> {
+  return withQueueWrite(async () => {
   const db = await database();
   const item: QueuedTransfer = { id: crypto.randomUUID(), ...input, status: "waiting", createdAt: Date.now() };
   let result: QueuedTransfer = item;
@@ -102,6 +112,7 @@ export async function enqueueTransfer(input: { uri: string; name: string; mime: 
     );
   });
   return result;
+  });
 }
 
 export async function listPendingTransfers(): Promise<QueuedTransfer[]> {
@@ -111,6 +122,7 @@ export async function listPendingTransfers(): Promise<QueuedTransfer[]> {
 }
 
 export async function assignUnassignedTransfersTarget(target: PairingRef): Promise<number> {
+  return withQueueWrite(async () => {
   const db = await database();
   let assigned = 0;
   await db.withExclusiveTransactionAsync(async (txn) => {
@@ -129,27 +141,34 @@ export async function assignUnassignedTransfersTarget(target: PairingRef): Promi
     }
   });
   return assigned;
+  });
 }
 
 export async function releaseTransfersTarget(target: PairingRef): Promise<void> {
+  return withQueueWrite(async () => {
   const db = await database();
   await db.runAsync(
     "UPDATE transfer_queue SET target_room_id = NULL, target_desktop_id = NULL, status = 'waiting', last_error = NULL WHERE status IN ('waiting', 'preparing', 'failed', 'retrying', 'transferring') AND target_room_id = ? AND target_desktop_id = ?",
     target.roomId, target.desktopId,
   );
+  });
 }
 
 export async function updateTransferStatus(id: string, status: QueuedTransfer["status"], lastError?: string): Promise<void> {
+  return withQueueWrite(async () => {
   const db = await database();
-  await db.runAsync("UPDATE transfer_queue SET status = ?, last_error = ? WHERE id = ?", status, lastError ?? null, id);
+  await db.runAsync("UPDATE transfer_queue SET status = ?, last_error = ? WHERE id = ? AND status != 'cancelled'", status, lastError ?? null, id);
+  });
 }
 
 export async function cancelTransfer(id: string): Promise<void> {
+  return withQueueWrite(async () => {
   const db = await database();
   await db.runAsync(
     "UPDATE transfer_queue SET status = 'cancelled', last_error = NULL WHERE id = ? AND status IN ('waiting', 'preparing', 'retrying', 'transferring', 'failed')",
     id,
   );
+  });
 }
 
 export async function countPendingTransfers(): Promise<number> {

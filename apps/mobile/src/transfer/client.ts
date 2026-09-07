@@ -32,6 +32,7 @@ const TRANSFER_RESPONSE_TIMEOUT_MS = 12_000;
 const MAX_TRANSFER_RETRIES = 2;
 
 export class MobileRelayClient {
+  private controlMessages: Promise<void> = Promise.resolve();
   private socket: WebSocket | null = null;
   private connectAttempt: ConnectAttempt | null = null;
   private connectionGeneration = 0;
@@ -105,7 +106,13 @@ export class MobileRelayClient {
           };
           socket.onmessage = (event) => {
             if (this.connectionGeneration !== generation || this.socket !== socket || typeof event.data !== "string") return;
-            this.handleControl(event.data).catch((error) => this.failActive(error));
+            const raw = event.data;
+            this.controlMessages = this.controlMessages.then(async () => {
+              if (this.connectionGeneration !== generation || this.socket !== socket) return;
+              const active = this.active;
+              try { await this.handleControl(raw); }
+              catch (error) { if (this.active === active) this.failActive(error); }
+            });
           };
         } catch (error) {
           if (isCurrent()) finish(error instanceof Error ? error : new Error("relay_unavailable"));
@@ -228,12 +235,14 @@ export class MobileRelayClient {
     }
     const message = parseTransferControlMessage(value); const active = this.active; if (!active || message.transferId !== active.meta.transferId) return;
     if (message.type === "transfer:accept") {
+      if (active.phase !== "awaiting_accept") return;
       active.phase = "awaiting_ack";
       if (message.resumeFromChunk > active.bestResumeFromChunk) {
         active.bestResumeFromChunk = message.resumeFromChunk;
         active.retryCount = 0;
       }
       const progress = await active.sender.start(message.resumeFromChunk);
+      if (this.active !== active) return;
       this.updateTransfer(progress, "transferring");
       this.armResponseTimeout(active);
       return;
@@ -241,6 +250,7 @@ export class MobileRelayClient {
     if (message.type === "transfer:ack") {
       const before = active.sender.progress();
       const progress = await active.sender.acknowledge(message.receivedThroughChunk);
+      if (this.active !== active) return;
       const advanced = progress.acknowledgedBytes > before.acknowledgedBytes;
       if (advanced) {
         active.phase = progress.complete ? "awaiting_complete" : "awaiting_ack";
@@ -254,6 +264,7 @@ export class MobileRelayClient {
     if (message.type === "transfer:resume") {
       const before = active.sender.progress();
       const progress = await active.sender.resume(message.receivedThroughChunk);
+      if (this.active !== active) return;
       const advanced = progress.acknowledgedBytes > before.acknowledgedBytes;
       if (advanced) {
         active.phase = progress.complete ? "awaiting_complete" : "awaiting_ack";
@@ -273,6 +284,7 @@ export class MobileRelayClient {
   }
 
   private armResponseTimeout(active: ActiveTransfer): void {
+    if (this.active !== active) return;
     this.clearResponseTimeout(active);
     active.responseTimer = new ResponseTimeoutController(this.transferResponseTimeoutMs, () => { void this.retryOrFail(active); });
     active.responseTimer.arm();
