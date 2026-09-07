@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createKeyedGate, sectionFromEventPayload, shouldAdoptServerAlias } from "../ui/state.ts";
+import { createKeyedGate, sectionFromEventPayload, shouldAdoptServerAlias, shouldApplySettingsSnapshot } from "../ui/state.ts";
 
 test("section events only target a known independent snapshot", () => {
   assert.equal(sectionFromEventPayload({ section: "settings" }), "settings");
@@ -15,6 +15,8 @@ test("section events only target a known independent snapshot", () => {
 test("dirty, including empty, drafts are preserved during refresh", () => {
   assert.equal(shouldAdoptServerAlias(false), true);
   assert.equal(shouldAdoptServerAlias(true), false);
+  assert.equal(shouldApplySettingsSnapshot(4, 4), true);
+  assert.equal(shouldApplySettingsSnapshot(4, 5), false);
 });
 
 test("keyed gate prevents duplicate commands and overlapping section refreshes", () => {

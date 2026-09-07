@@ -19,6 +19,10 @@ export function shouldAdoptServerAlias(draftDirty: boolean): boolean {
   return !draftDirty;
 }
 
+export function shouldApplySettingsSnapshot(generationAtStart: number, currentGeneration: number): boolean {
+  return generationAtStart === currentGeneration;
+}
+
 /**
  * Small keyed gate used for both refreshes and commands. It is deliberately
  * framework-free so its duplicate/overlap semantics can be tested directly.
