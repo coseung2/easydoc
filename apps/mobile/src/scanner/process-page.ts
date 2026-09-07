@@ -1,6 +1,6 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
-import { processImage, type ScanFilter } from "@easydoc/image-processing";
+import { createJsScanImageProcessor, type ScanFilter, type ScanImageProcessor } from "@easydoc/image-processing";
 
 export type EditableScanPage = {
   id: string;
@@ -9,29 +9,40 @@ export type EditableScanPage = {
   filter: ScanFilter;
 };
 
-export async function prepareScanPage(page: EditableScanPage): Promise<string> {
-  let workingUri = page.uri;
-
-  if (page.rotation !== 0) {
+const jsScanImageProcessor = createJsScanImageProcessor({
+  read: async (uri) => new File(uri).bytes(),
+  write: async (uri, bytes) => {
+    const target = new File(uri);
+    target.create({ overwrite: true, intermediates: true });
+    target.write(bytes);
+  },
+  rotate: async (uri, rotation, jpegQuality) => {
     const rotated = await manipulateAsync(
-      workingUri,
-      [{ rotate: page.rotation }],
-      { compress: 0.95, format: SaveFormat.JPEG },
+      uri,
+      [{ rotate: rotation }],
+      { compress: jpegQuality / 100, format: SaveFormat.JPEG },
     );
-    workingUri = rotated.uri;
-  }
+    return rotated.uri;
+  },
+});
 
-  if (page.filter === "color") return workingUri;
+export async function prepareScanPage(page: EditableScanPage, processor: ScanImageProcessor = jsScanImageProcessor): Promise<string> {
+  if (page.filter === "color" && page.rotation === 0) return page.uri;
 
-  const source = new File(workingUri);
-  const processed = processImage(await source.bytes(), page.filter, 92);
+  const source = new File(page.uri);
   const cacheDirectory = new Directory(Paths.cache, "EasyDoc", "processed-scans");
   cacheDirectory.create({ intermediates: true, idempotent: true });
-  const extension = processed.mimeType === "image/png" ? "png" : "jpg";
+  const sourceExtension = source.extension.toLowerCase();
+  const extension = page.rotation === 0 && sourceExtension.endsWith(".png") ? "png" : "jpg";
   const target = new File(cacheDirectory, `${page.id}-${page.rotation}-${page.filter}.${extension}`);
-  target.create({ overwrite: true, intermediates: true });
-  target.write(processed.bytes);
-  return target.uri;
+  const result = await processor.process({
+    inputUri: page.uri,
+    outputUri: target.uri,
+    filter: page.filter,
+    rotation: page.rotation,
+    jpegQuality: 92,
+  });
+  return result.uri;
 }
 
 export function rotateScanPage(page: EditableScanPage): EditableScanPage {

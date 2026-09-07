@@ -2,7 +2,31 @@ import { decode as decodePng, encode as encodePng, hasPngSignature } from "fast-
 import jpeg from "jpeg-js";
 
 export type ScanFilter = "color" | "gray" | "bw";
+export type ScanRotation = 0 | 90 | 180 | 270;
 export type ProcessedImage = { bytes: Uint8Array; mimeType: "image/jpeg" | "image/png"; width: number; height: number };
+
+export type ScanProcessRequest = {
+  inputUri: string;
+  outputUri: string;
+  filter: ScanFilter;
+  rotation?: ScanRotation;
+  jpegQuality?: number;
+};
+
+export type ScanProcessResult = {
+  uri: string;
+  mimeType?: "image/jpeg" | "image/png";
+};
+
+export interface ScanImageProcessor {
+  process(request: ScanProcessRequest): Promise<ScanProcessResult>;
+}
+
+export type JsScanImageIo = {
+  read(uri: string): Promise<Uint8Array>;
+  write(uri: string, bytes: Uint8Array): Promise<void>;
+  rotate?(uri: string, rotation: Exclude<ScanRotation, 0>, jpegQuality: number): Promise<string>;
+};
 
 type Raster = { data: Uint8Array; width: number; height: number; mimeType: "image/jpeg" | "image/png" };
 
@@ -64,4 +88,25 @@ export function processImage(input: Uint8Array, filter: ScanFilter, jpegQuality 
   if (image.mimeType === "image/png") return { bytes: encodePng({ data, width: image.width, height: image.height, channels: 4, depth: 8 }), mimeType: "image/png", width: image.width, height: image.height };
   const encoded = jpeg.encode({ data, width: image.width, height: image.height }, Math.max(1, Math.min(100, jpegQuality)));
   return { bytes: Uint8Array.from(encoded.data), mimeType: "image/jpeg", width: image.width, height: image.height };
+}
+
+export function createJsScanImageProcessor(io: JsScanImageIo): ScanImageProcessor {
+  return {
+    async process(request) {
+      const rotation = request.rotation ?? 0;
+      const jpegQuality = request.jpegQuality ?? 90;
+      let workingUri = request.inputUri;
+
+      if (rotation !== 0) {
+        if (!io.rotate) throw new Error("scan_rotation_not_supported");
+        workingUri = await io.rotate(workingUri, rotation, jpegQuality);
+      }
+
+      if (request.filter === "color") return { uri: workingUri };
+
+      const processed = processImage(await io.read(workingUri), request.filter, jpegQuality);
+      await io.write(request.outputUri, processed.bytes);
+      return { uri: request.outputUri, mimeType: processed.mimeType };
+    },
+  };
 }
