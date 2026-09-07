@@ -8,8 +8,9 @@ import { getPdfPageRasterizer } from "../pdf/rasterizer-backend.ts";
 import { colors, radius } from "./theme";
 import { recognizeDocument } from "../ocr/client";
 import { joinRecognizedPages, searchRecognizedPages, type RecognizedPage } from "../ocr/text";
+import { cacheOcrSearchQuery, documentIdentity, documentRevision, getCachedOcrSearchQuery, getCachedRecognizedPages, type OcrDocument } from "../ocr/cache";
 
-export type ViewableDocument = { name: string; uri?: string; mime?: string; type: string };
+export type ViewableDocument = OcrDocument & { type: string };
 
 function isPdf(file: ViewableDocument) { return file.mime === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"); }
 function isImage(file: ViewableDocument) { return file.mime?.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/iu.test(file.name); }
@@ -55,15 +56,26 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
   const recognitionRunning = useRef(false);
   const generation = useRef(0);
   const recognitionAbort = useRef<AbortController | null>(null);
+  const sendRunning = useRef(false);
+  const [sendStatus, setSendStatus] = useState<"idle" | "sending" | "queued" | "error">("idle");
+  const [sendError, setSendError] = useState("");
 
   useEffect(() => {
-    setPage(1); setPageCount(0); setText(""); setError(""); setSearchOpen(false); setQuery(""); setPageImages({}); setPagePickerOpen(false); setPageImagesLoading(false); setJumpedPage(null);
+    setPage(1); setPageCount(0); setText(""); setError(""); setSearchOpen(false); setPageImages({}); setPagePickerOpen(false); setPageImagesLoading(false); setJumpedPage(null);
     generation.current += 1;
     const current = generation.current;
     setRecognizedPages([]); setRecognizing(false); recognitionRunning.current = false;
+    setSendStatus("idle"); setSendError(""); sendRunning.current = false;
+    const cachedPages = file ? getCachedRecognizedPages(file) : undefined;
+    const cachedQuery = file ? getCachedOcrSearchQuery(file) : "";
+    setQuery(cachedQuery);
+    if (cachedPages) {
+      setRecognizedPages(cachedPages);
+      setText(joinRecognizedPages(cachedPages));
+    }
     if (file?.uri && isText(file)) new File(file.uri).text().then(setText).catch((cause) => setError(String(cause)));
     return () => { if (generation.current === current) generation.current += 1; recognitionAbort.current?.abort(); };
-  }, [file?.uri]);
+  }, [file?.uri, file?.id, file?.localId, file?.revision, file?.updatedAt, file?.size]);
 
   const searchCount = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -75,8 +87,15 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
   const renderRasterizedPage = useCallback(async (index: number, maxDimension?: number, quality?: number) => {
     if (!file?.uri || !isPdf(file)) throw new Error("pdf_uri_required");
     const rasterizer = await getPdfPageRasterizer();
-    return rasterizer.renderPage({ uri: file.uri, pageIndex: index, maxDimension, quality });
-  }, [file?.uri]);
+    return rasterizer.renderPage({
+      uri: file.uri,
+      pageIndex: index,
+      maxDimension,
+      quality,
+      documentId: documentIdentity(file),
+      revision: documentRevision(file),
+    });
+  }, [file?.uri, file?.name, file?.mime, file?.id, file?.localId, file?.revision, file?.updatedAt, file?.size]);
   const renderPageImage = useCallback(async (index: number) => {
     const uri = await renderRasterizedPage(index);
     setPageImages((current) => current[index] ? current : { ...current, [index]: uri });
@@ -84,11 +103,27 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
   }, [renderRasterizedPage]);
   const renderThumbnailImage = useCallback((index: number) => renderRasterizedPage(index, 240, 0.72), [renderRasterizedPage]);
 
+  const handleSend = useCallback(async () => {
+    if (!onSend || sendRunning.current || sendStatus === "queued") return;
+    sendRunning.current = true;
+    setSendStatus("sending");
+    setSendError("");
+    try {
+      await onSend();
+      setSendStatus("queued");
+    } catch (cause) {
+      setSendStatus("error");
+      setSendError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      sendRunning.current = false;
+    }
+  }, [onSend, sendStatus]);
+
   useEffect(() => {
     const uri = file?.uri;
     if (!uri || !isPdf(file)) return;
     return () => { void getPdfPageRasterizer().then((rasterizer) => rasterizer.release?.(uri)); };
-  }, [file?.uri]);
+  }, [file?.uri, file?.id, file?.localId, file?.revision, file?.updatedAt, file?.size]);
 
   if (!file) return <Unsupported title="선택된 문서가 없습니다" onBack={onBack} />;
 
@@ -157,6 +192,7 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
     }
   };
 
+  const sendBusy = sendStatus === "sending" || sendStatus === "queued";
   return <View style={styles.root}>
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.titleRow}><Feather name="arrow-left" size={20} color={colors.text} /><View style={styles.titleBlock}><Text style={styles.title} numberOfLines={1}>{file.name}</Text><Text style={styles.meta}>{pageCount > 0 ? `${page} / ${pageCount}` : file.type}</Text></View></Pressable>
@@ -165,11 +201,11 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
         {onOcr && (isPdf(file) || isImage(file)) && <Pressable accessibilityLabel="문자 인식" style={styles.iconButton} onPress={onOcr}><Feather name="type" size={18} /></Pressable>}
         {isPdf(file) && <Pressable accessibilityLabel="페이지 이동" style={styles.iconButton} onPress={() => openPagePicker()}><Feather name="copy" size={18} /></Pressable>}
         {isPdf(file) && <Pressable style={styles.iconButton} onPress={onPresent}><Feather name="maximize-2" size={19} /></Pressable>}
-        {file.uri && onSend && <Pressable style={styles.iconButton} onPress={() => onSend()}><Feather name="send" size={18} color={colors.primary} /></Pressable>}
+        {file.uri && onSend && <Pressable accessibilityLabel="PC로 보내기" style={styles.iconButton} disabled={sendBusy} onPress={() => { void handleSend(); }}>{sendStatus === "sending" ? <ActivityIndicator size="small" color={colors.primary} /> : <Feather name="send" size={18} color={sendBusy ? colors.textMuted : colors.primary} />}</Pressable>}
         <Pressable style={styles.iconButton} onPress={share}><Feather name="share-2" size={19} /></Pressable>
       </View>
     </View>
-    {searchOpen && <View style={styles.searchBar}><Feather name="search" size={16} color={colors.textMuted} /><TextInput accessibilityLabel="문서에서 찾기" value={query} onChangeText={setQuery} autoFocus placeholder="문서에서 찾기" placeholderTextColor={colors.textMuted} style={styles.searchInput} /><Text style={styles.searchCount}>{query.trim() ? `${searchCount}개` : ""}</Text><Pressable accessibilityLabel="검색 닫기" style={styles.iconButton} onPress={() => { recognitionAbort.current?.abort(); setSearchOpen(false); setQuery(""); }}><Feather name="x" size={17} color={colors.textMuted} /></Pressable></View>}
+    {searchOpen && <View style={styles.searchBar}><Feather name="search" size={16} color={colors.textMuted} /><TextInput accessibilityLabel="문서에서 찾기" value={query} onChangeText={(value) => { setQuery(value); cacheOcrSearchQuery(file, value); }} autoFocus placeholder="문서에서 찾기" placeholderTextColor={colors.textMuted} style={styles.searchInput} /><Text style={styles.searchCount}>{query.trim() ? `${searchCount}개` : ""}</Text><Pressable accessibilityLabel="검색 닫기" style={styles.iconButton} onPress={() => { recognitionAbort.current?.abort(); setSearchOpen(false); setQuery(""); cacheOcrSearchQuery(file, ""); }}><Feather name="x" size={17} color={colors.textMuted} /></Pressable></View>}
     {searchOpen && recognizing && <Text style={styles.searchNotice}>{recognitionProgress}</Text>}
     {searchOpen && isPdf(file) && !recognizing && !!query.trim() && <ScrollView horizontal style={{ maxHeight: 50 }} contentContainerStyle={{ gap: 8, alignItems: "center" }}>{matchingPages.map((result) => <Pressable key={result.page} style={styles.matchPage} onPress={() => openPagePicker(result.page - 1)}><Text style={styles.continuousText}>{result.page}페이지</Text></Pressable>)}{!matchingPages.length && <Text style={styles.searchNotice}>일치하는 페이지가 없습니다.</Text>}</ScrollView>}
     <View style={styles.viewer}>
@@ -181,6 +217,8 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
       {file.uri && !isPdf(file) && !isImage(file) && !isText(file) && <UnsupportedBody message="HWP/HWPX 및 Office 문서는 기기 내 미리보기를 지원하지 않습니다. 설치된 한글 또는 문서 앱에서 원본 파일을 열 수 있습니다." actionLabel="외부 앱에서 열기" onAction={openExternally} />}
     </View>
     {pagePickerOpen && isPdf(file) && <View style={styles.pagePicker}><View style={styles.pagePickerHeader}><Text style={styles.pagePickerTitle}>페이지 이동</Text><Pressable onPress={() => setPagePickerOpen(false)}><Feather name="x" size={18} color={colors.textMuted} /></Pressable></View>{pageImagesLoading ? <View style={styles.pagePickerLoading}><ActivityIndicator color={colors.primary} /><Text style={styles.pagePickerLoadingText}>페이지 수 확인 중...</Text></View> : <FlatList horizontal data={pageIndexes} keyExtractor={(index) => String(index)} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.readerThumbnailRow} initialNumToRender={6} maxToRenderPerBatch={6} windowSize={3} getItemLayout={(_, index) => ({ length: 70, offset: 70 * index, index })} renderItem={({ item: index }) => <RasterizedThumbnail index={index} active={page === index + 1} renderPage={renderThumbnailImage} onPress={() => { void jumpToPage(index); }} />} />}</View>}
+    {sendStatus === "queued" && <Text style={styles.sendNotice}>전송 대기 목록에 추가했습니다.</Text>}
+    {sendError && <Text style={styles.error}>{sendError}</Text>}
     {error && <Text style={styles.error}>{error}</Text>}
   </View>;
 }
@@ -195,8 +233,15 @@ export function PresentationScreen({ file, onBack }: { file: ViewableDocument | 
   const renderRasterizedPage = useCallback(async (index: number, maxDimension?: number, quality?: number) => {
     if (!file?.uri || !isPdf(file)) throw new Error("pdf_uri_required");
     const rasterizer = await getPdfPageRasterizer();
-    return rasterizer.renderPage({ uri: file.uri, pageIndex: index, maxDimension, quality });
-  }, [file?.uri]);
+    return rasterizer.renderPage({
+      uri: file.uri,
+      pageIndex: index,
+      maxDimension,
+      quality,
+      documentId: documentIdentity(file),
+      revision: documentRevision(file),
+    });
+  }, [file?.uri, file?.name, file?.mime, file?.id, file?.localId, file?.revision, file?.updatedAt, file?.size]);
   const renderPageImage = useCallback(async (index: number) => {
     const uri = await renderRasterizedPage(index);
     setPages((current) => current[index] ? current : { ...current, [index]: uri });
@@ -214,7 +259,7 @@ export function PresentationScreen({ file, onBack }: { file: ViewableDocument | 
       mounted = false;
       void getPdfPageRasterizer().then((rasterizer) => rasterizer.release?.(file.uri!));
     };
-  }, [file?.uri]);
+  }, [file?.uri, file?.id, file?.localId, file?.revision, file?.updatedAt, file?.size]);
 
   useEffect(() => {
     if (!file?.uri || !isPdf(file) || pageCount <= 0) return;
@@ -259,7 +304,7 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
   titleBlock: { flexShrink: 1 }, title: { fontSize: 14, fontWeight: "800", color: colors.text, maxWidth: 220 }, meta: { marginTop: 3, color: colors.textMuted, fontSize: 11 },
   headerActions: { flexDirection: "row", justifyContent: "flex-end" }, iconButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  searchNotice: { fontSize: 12, paddingVertical: 8, color: colors.textMuted }, matchPage: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center", borderRadius: 10, backgroundColor: colors.primarySoft },
+  searchNotice: { fontSize: 12, paddingVertical: 8, color: colors.textMuted }, sendNotice: { fontSize: 12, paddingVertical: 8, color: colors.primary }, matchPage: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center", borderRadius: 10, backgroundColor: colors.primarySoft },
   searchBar: { height: 44, marginBottom: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 8 },
   searchInput: { flex: 1, fontSize: 12, color: colors.text, paddingVertical: 0 }, searchCount: { fontSize: 10, color: colors.textMuted, fontWeight: "700" },
   viewer: { flex: 1, borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.surfaceMuted }, pdf: { flex: 1 },
