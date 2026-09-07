@@ -181,6 +181,6 @@ Before production release:
 - Verify key persistence/revocation
 - Verify checksum failure path
 - Verify logs do not leak names/content/secrets
-- Dependency audit
+- Dependency audit via `npm run audit:prod`; temporary exceptions must follow `docs/dependency-audit-policy.md`
 - Test malformed/oversized protocol frames
 - Rate limiting / abuse controls on public relay endpoints

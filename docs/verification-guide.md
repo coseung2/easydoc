@@ -179,6 +179,6 @@ The current environment still does not provide completed verification for:
 
 External file drag-out from Scan Inbox into another desktop/browser application is also not wired in this handoff. Tauri v2 requires an additional native drag-out integration for that behavior; it should be added only with a Windows-native build/test loop rather than as an unverified dependency.
 
-Dependency audit in the current clone: `npm audit --omit=dev` reports 11 moderate findings, 0 high, and 0 critical. The findings are concentrated in the current Expo dependency/tooling chain and include entries without a compatible automatic fix. Do not use a forced major dependency rewrite solely to clear the audit without re-validating the Expo/native-module compatibility matrix.
+Dependency audit in the current clone: `npm audit --omit=dev` reports 5 moderate findings, 1 high, and 0 critical after adding `react-native-scanbot-sdk@9.0.2`. The HIGH finding is confined to Scanbot's Expo config-plugin build-time `xmldom` path and is governed by the exact, expiring policy in `docs/dependency-audit-policy.md`; `npm run audit:prod` fails on any unrelated HIGH/CRITICAL finding or any drift in the approved path/advisory set. Do not use a forced dependency rewrite solely to clear the audit without re-validating the Expo/native-module compatibility matrix.
 
 Those checks and constraints are intentionally explicit rather than being reported as completed validation.
