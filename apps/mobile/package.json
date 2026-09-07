@@ -30,6 +30,7 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-document-scanner-plugin": "^2.0.4",
+    "react-native-fast-opencv": "^1.0.1",
     "react-native-get-random-values": "^1.11.0",
     "react-native-pdf-to-image": "^4.0.0",
     "react-native-safe-area-context": "~5.7.0"

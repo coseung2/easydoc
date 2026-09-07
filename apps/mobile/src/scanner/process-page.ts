@@ -26,7 +26,15 @@ const jsScanImageProcessor = createJsScanImageProcessor({
   },
 });
 
-export async function prepareScanPage(page: EditableScanPage, processor: ScanImageProcessor = jsScanImageProcessor): Promise<string> {
+async function selectedScanImageProcessor(): Promise<ScanImageProcessor> {
+  if (process.env.EXPO_PUBLIC_SCAN_IMAGE_BACKEND === "opencv") {
+    const { opencvScanImageProcessor } = await import("./opencv-image-processor.ts");
+    return opencvScanImageProcessor;
+  }
+  return jsScanImageProcessor;
+}
+
+export async function prepareScanPage(page: EditableScanPage, processor?: ScanImageProcessor): Promise<string> {
   if (page.filter === "color" && page.rotation === 0) return page.uri;
 
   const source = new File(page.uri);
@@ -35,7 +43,8 @@ export async function prepareScanPage(page: EditableScanPage, processor: ScanIma
   const sourceExtension = source.extension.toLowerCase();
   const extension = page.rotation === 0 && sourceExtension.endsWith(".png") ? "png" : "jpg";
   const target = new File(cacheDirectory, `${page.id}-${page.rotation}-${page.filter}.${extension}`);
-  const result = await processor.process({
+  const activeProcessor = processor ?? await selectedScanImageProcessor();
+  const result = await activeProcessor.process({
     inputUri: page.uri,
     outputUri: target.uri,
     filter: page.filter,
