@@ -46,6 +46,27 @@ not verified by them.
 
 ## Operational notes
 
+### Windows connection fix (0.2.2)
+
+The Windows build now explicitly enables keyring's `windows-native` backend.
+Previously the default mock backend stored secrets only in the temporary Entry,
+so a subsequent session refresh could not retrieve the pairing bootstrap secret.
+The missing-credential case now explains that both sides need a fresh QR pairing.
+Existing pairing records and received files are preserved; lost secrets cannot
+be recovered by installing the fix.
+
+Verification: the backend-persistence regression failed before the fix and passed
+afterwards. Eight Rust library tests passed, and the separately invoked Windows
+credential smoke test passed (unique test entry saved, read through a new Entry,
+then removed). `npm run verify` passed all 83 tests and its type/build/audit checks.
+The 0.2.2 NSIS installer completed successfully and installed executable/registry
+versions were checked. Relay `/health` responded successfully. End-to-end phone
+presence still requires the user to re-pair. The Computer Use native pipe was
+unavailable, so no installed-app click verification is claimed.
+
+The 0.2.2 build used cached dependencies in Cargo offline mode and did not need
+to disable certificate checks.
+
 - Separate Luna workers handled desktop interaction feedback, mobile transfer
   responsiveness, and PDF/OCR cache work. Luna was the available model in the
   requested worker pool; isolated scopes enabled parallel implementation and

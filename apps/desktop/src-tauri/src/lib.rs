@@ -215,7 +215,10 @@ fn load_credential(kind: &str, id: &str) -> Result<String, String> {
     keyring::Entry::new("EasyDoc", &credential_account(kind, id))
         .map_err(|e| e.to_string())?
         .get_password()
-        .map_err(|e| e.to_string())
+        .map_err(|error| match error {
+            keyring::Error::NoEntry => "pairing_credentials_missing".to_string(),
+            error => error.to_string(),
+        })
 }
 fn delete_credential(kind: &str, id: &str) -> Result<(), String> {
     match keyring::Entry::new("EasyDoc", &credential_account(kind, id))
@@ -790,8 +793,7 @@ async fn revoke_pairing(state: State<'_, Arc<AppState>>, room_id: String) -> Res
         .cloned()
         .ok_or("pairing_not_found")?;
     if let Err(error) = revoke_remote_pairing(&settings, &pairing).await {
-        let missing_credential = error.to_lowercase().contains("no matching entry")
-            || error.to_lowercase().contains("no entry");
+        let missing_credential = error == "pairing_credentials_missing";
         if !missing_credential && error != "pairing_invalid" {
             return Err(error);
         }
@@ -1467,6 +1469,32 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_credential_backend_is_persistent() {
+        use keyring::credential::CredentialPersistence;
+        let builder = keyring::default::default_credential_builder();
+        assert!(matches!(builder.persistence(), CredentialPersistence::UntilDelete));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "Writes and removes a uniquely named test credential in Windows Credential Manager"]
+    fn windows_credentials_survive_entry_recreation() {
+        let id = format!("test-{}", Uuid::new_v4());
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) { let _ = delete_credential("credential-smoke", &self.0); }
+        }
+        let _cleanup = Cleanup(id.clone());
+        store_credential("credential-smoke", &id, "easydoc-test-value").unwrap();
+        // Each helper constructs a new Entry, exactly as pairing creation and
+        // receiver session refresh do. The mock backend loses the value here.
+        assert_eq!(load_credential("credential-smoke", &id).unwrap(), "easydoc-test-value");
+        delete_credential("credential-smoke", &id).unwrap();
+        assert!(load_credential("credential-smoke", &id).is_err());
+    }
 
     #[test]
     fn profile_message_contains_only_current_public_metadata() {

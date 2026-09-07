@@ -29,6 +29,7 @@ function errorLabel(error: unknown) {
   const code = String(error).replace(/^Error:\s*/, "");
   const labels: Record<string, string> = {
     pairing_invalid: "연결 정보가 만료되었거나 유효하지 않습니다.",
+    pairing_credentials_missing: "연결 인증키가 없습니다. 휴대폰과 PC에서 기존 연결을 해제한 뒤 새 QR로 다시 연결해 주세요.",
     pairing_not_found: "연결 정보를 찾을 수 없습니다.",
     filename_exists: "같은 이름의 파일이 이미 있습니다.",
     invalid_filename: "사용할 수 없는 파일 이름입니다.",
