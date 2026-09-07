@@ -78,6 +78,7 @@ import {
   syncCloudProjects,
 } from './cloud-projects'
 import { handleDroppedFiles } from './dropped-files'
+import { EasyDocShellIntegration } from './easydoc'
 import { ProjectStore } from '@genoffice/project-store'
 import {
   genofficeLogout,
@@ -2059,6 +2060,7 @@ const tm = (key: Parameters<typeof tMain>[1], params?: Parameters<typeof tMain>[
 // ---- the shell window + its tab manager (recreated if the user closes it on macOS) ----
 
 let shellWindow: BrowserWindow | null = null
+let easyDocIntegration: EasyDocShellIntegration | null = null
 let tabManager: TabManager | null = null
 
 /**
@@ -3902,6 +3904,14 @@ app.whenReady().then(async () => {
   initAnalytics()
   analytics.track('app_launch')
   startSheetsCaptureServer()
+  try {
+    easyDocIntegration = new EasyDocShellIntegration(openDocumentPath)
+    await easyDocIntegration.start()
+    easyDocIntegration.registerIpc()
+  } catch (error) {
+    easyDocIntegration = null
+    console.warn('[easydoc] receiver startup failed:', error)
+  }
   createShellWindow()
   // deferred to ready: labels need currentLang(), which reads app.getLocale()
   installBackToHomeItems()
@@ -3924,4 +3934,5 @@ app.on('before-quit', () => {
   // No close prompt may fall through to "Save" during shutdown
   markSheetsShuttingDown()
   stopSheetsSidecar()
+  void easyDocIntegration?.stop()
 })

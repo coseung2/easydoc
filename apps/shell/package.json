@@ -19,6 +19,7 @@
     "dist:linux": "electron-vite build && electron-builder --linux"
   },
   "devDependencies": {
+    "@easydoc/receiver": "0.0.1",
     "@genoffice/agent-core": "*",
     "@genoffice/ai-provider": "*",
     "@genoffice/ai-search": "*",

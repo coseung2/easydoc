@@ -26,6 +26,45 @@ export type UiLanguage =
 /** UI theme preference */
 export type UiTheme = 'light' | 'dark' | 'system'
 
+export interface EasyDocPairingSummary {
+  roomId: string
+  deviceId: string
+  mobileId?: string
+  authorized: boolean
+  connected: boolean
+  error?: string
+}
+
+export interface EasyDocState {
+  desktopAlias: string
+  receiveDir: string
+  autoOpen: boolean
+  pairings: EasyDocPairingSummary[]
+}
+
+export interface EasyDocPairingView {
+  qrPayload: string
+  expiresAt: number
+  roomId: string
+}
+
+export interface EasyDocFileReceivedEvent {
+  path: string
+  filename: string
+  size: number
+  mime: string
+}
+
+export interface EasyDocApi {
+  state(): Promise<EasyDocState>
+  createPairing(): Promise<EasyDocPairingView>
+  revokePairing(roomId: string): Promise<void>
+  chooseReceiveDirectory(): Promise<string | null>
+  setAutoOpen(enabled: boolean): Promise<EasyDocState>
+  onStateChanged(handler: (state: EasyDocState) => void): () => void
+  onFileReceived(handler: (event: EasyDocFileReceivedEvent) => void): () => void
+}
+
 /** a recent file entry shown on the home screen; type derives from the extension */
 export interface RecentEntry {
   path: string
@@ -265,6 +304,16 @@ export interface ProjectHomeApi {
   /** fetch the project timeline */
   getTimeline(projectId: string, limit?: number): Promise<TimelineEntryItem[]>
 }
+
+export const EASYDOC_CHANNELS = {
+  state: 'easydoc:state',
+  createPairing: 'easydoc:create-pairing',
+  revokePairing: 'easydoc:revoke-pairing',
+  chooseReceiveDirectory: 'easydoc:choose-receive-directory',
+  setAutoOpen: 'easydoc:set-auto-open',
+  stateChanged: 'easydoc:state-changed',
+  fileReceived: 'easydoc:file-received',
+} as const
 
 export const HOME_CHANNELS = {
   recents: 'home:recents',

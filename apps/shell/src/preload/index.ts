@@ -7,6 +7,10 @@ import type {
   AccountLoginEvent,
   AccountStatus,
   CloudProjectsSnapshot,
+  EasyDocApi,
+  EasyDocFileReceivedEvent,
+  EasyDocPairingView,
+  EasyDocState,
   HomeApi,
   RecentEntry,
   RecentPage,
@@ -16,7 +20,7 @@ import type {
   TimelineEntryItem,
   UiLanguage,
 } from '../shared/home-api'
-import { HOME_CHANNELS, PROJECT_CHANNELS } from '../shared/home-api'
+import { EASYDOC_CHANNELS, HOME_CHANNELS, PROJECT_CHANNELS } from '../shared/home-api'
 import type { TabsApi, TabSummary } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
 
@@ -286,6 +290,60 @@ function asCloudProjectsSnapshot(result: unknown): CloudProjectsSnapshot | null 
 }
 
 contextBridge.exposeInMainWorld('aiOffice', homeApi)
+
+function asEasyDocState(result: unknown): EasyDocState {
+  const raw = (result ?? {}) as Partial<EasyDocState>
+  return {
+    desktopAlias: typeof raw.desktopAlias === 'string' ? raw.desktopAlias : '',
+    receiveDir: typeof raw.receiveDir === 'string' ? raw.receiveDir : '',
+    autoOpen: raw.autoOpen !== false,
+    pairings: Array.isArray(raw.pairings) ? raw.pairings : [],
+  }
+}
+
+const easyDocApi: EasyDocApi = {
+  async state() {
+    return asEasyDocState(await ipcRenderer.invoke(EASYDOC_CHANNELS.state))
+  },
+  async createPairing() {
+    const result: unknown = await ipcRenderer.invoke(EASYDOC_CHANNELS.createPairing)
+    return result as EasyDocPairingView
+  },
+  async revokePairing(roomId) {
+    if (typeof roomId !== 'string' || !roomId) throw new Error('Invalid pairing.')
+    await ipcRenderer.invoke(EASYDOC_CHANNELS.revokePairing, roomId)
+  },
+  async chooseReceiveDirectory() {
+    const result: unknown = await ipcRenderer.invoke(EASYDOC_CHANNELS.chooseReceiveDirectory)
+    return typeof result === 'string' && result ? result : null
+  },
+  async setAutoOpen(enabled) {
+    if (typeof enabled !== 'boolean') throw new Error('Invalid auto-open setting.')
+    return asEasyDocState(await ipcRenderer.invoke(EASYDOC_CHANNELS.setAutoOpen, enabled))
+  },
+  onStateChanged(handler) {
+    const listener = (_event: IpcRendererEvent, state: unknown) => handler(asEasyDocState(state))
+    ipcRenderer.on(EASYDOC_CHANNELS.stateChanged, listener)
+    return () => ipcRenderer.removeListener(EASYDOC_CHANNELS.stateChanged, listener)
+  },
+  onFileReceived(handler) {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const raw = (value ?? {}) as Partial<EasyDocFileReceivedEvent>
+      if (
+        typeof raw.path === 'string' &&
+        typeof raw.filename === 'string' &&
+        typeof raw.size === 'number' &&
+        typeof raw.mime === 'string'
+      ) {
+        handler(raw as EasyDocFileReceivedEvent)
+      }
+    }
+    ipcRenderer.on(EASYDOC_CHANNELS.fileReceived, listener)
+    return () => ipcRenderer.removeListener(EASYDOC_CHANNELS.fileReceived, listener)
+  },
+}
+
+contextBridge.exposeInMainWorld('easyDoc', easyDocApi)
 
 const projectApi: ProjectHomeApi = {
   async listProjects() {

@@ -4,10 +4,14 @@
     "jsx": "react-jsx",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"],
+    "allowImportingTsExtensions": true,
     // resolve the sibling source package by path (worktree-safe: a linked
     // node_modules would otherwise typecheck against another checkout) —
     // same mapping as packages/pdf2docx/tsconfig.json
     "paths": {
+      "@easydoc/crypto": ["../../packages/easydoc-crypto/src/index.ts"],
+      "@easydoc/protocol": ["../../packages/easydoc-protocol/src/index.ts"],
+      "@easydoc/receiver": ["../../packages/easydoc-receiver/src/index.ts"],
       "@genoffice/docx-engine": ["../../packages/docx-engine/src/index.ts"],
       "@genoffice/font-metrics": ["../../packages/font-metrics/src/index.ts"],
       "@genoffice/electron-utils": ["../../packages/electron-utils/src/index.ts"],
