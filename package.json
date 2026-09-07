@@ -22,7 +22,8 @@
     "typecheck:relay": "tsc -p apps/relay/tsconfig.json --noEmit",
     "build:desktop-ui": "npm --workspace @easydoc/desktop run build:vite",
     "check:relay": "wrangler deploy --dry-run --config apps/relay/wrangler.toml",
-    "verify": "npm test && npm run typecheck:mobile && npm run typecheck:relay && npm run build:desktop-ui && npm run check:relay"
+    "audit:prod": "node scripts/audit-production-dependencies.mjs",
+    "verify": "npm test && npm run typecheck:mobile && npm run typecheck:relay && npm run build:desktop-ui && npm run check:relay && npm run audit:prod"
   },
   "devDependencies": {
     "patch-package": "^8.0.1"
