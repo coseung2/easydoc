@@ -133,6 +133,10 @@ export async function assignUnassignedTransfersTarget(target: PairingRef): Promi
         row.uri, target.roomId, target.desktopId,
       );
       if (duplicate) {
+        if (duplicate.status === "failed") {
+          await txn.runAsync("UPDATE transfer_queue SET status = 'waiting', last_error = NULL WHERE id = ?", duplicate.id);
+          assigned += 1;
+        }
         await txn.runAsync("UPDATE transfer_queue SET status = 'cancelled', last_error = 'duplicate_coalesced' WHERE id = ?", row.id);
       } else {
         await txn.runAsync("UPDATE transfer_queue SET target_room_id = ?, target_desktop_id = ?, status = 'waiting', last_error = NULL WHERE id = ?", target.roomId, target.desktopId, row.id);

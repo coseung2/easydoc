@@ -44,9 +44,12 @@ test("real SQLite queue migration, concurrent dedup, reassignment and terminal c
     assert.equal(second.deduplicated, true);
     const otherTarget = { roomId: "other", desktopId: "other-pc" };
     const other = await queue.enqueueTransfer({ ...input, target: otherTarget });
+    await queue.updateTransferStatus(first.id, "failed", "relay_unavailable");
     await queue.releaseTransfersTarget(otherTarget);
-    assert.equal(await queue.assignUnassignedTransfersTarget(input.target), 0);
+    await queue.assignUnassignedTransfersTarget(input.target);
     assert.equal(sql.prepare("SELECT status FROM transfer_queue WHERE id=?").get(other.id)?.status, "cancelled");
+    assert.equal(sql.prepare("SELECT status FROM transfer_queue WHERE id=?").get(first.id)?.status, "waiting");
+    assert.equal(sql.prepare("SELECT last_error FROM transfer_queue WHERE id=?").get(first.id)?.last_error, null);
     await queue.cancelTransfer(first.id);
     await queue.updateTransferStatus(first.id, "failed", "late_network_failure");
     assert.equal(sql.prepare("SELECT status FROM transfer_queue WHERE id=?").get(first.id)?.status, "cancelled");

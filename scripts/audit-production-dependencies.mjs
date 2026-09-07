@@ -16,8 +16,16 @@ if (pinErrors.length > 0) {
   process.exit(1);
 }
 
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const audit = spawnSync(npmCommand, ["audit", "--omit=dev", "--json"], {
+// npm.cmd cannot be spawned directly on Windows. Under npm run, invoke its
+// JavaScript entry point without a shell; retain a direct-run fallback.
+const npmEntry = process.env.npm_execpath;
+const npmCommand = npmEntry ? process.execPath : process.platform === "win32" ? "cmd.exe" : "npm";
+const npmArgs = npmEntry
+  ? [npmEntry, "audit", "--omit=dev", "--json"]
+  : process.platform === "win32"
+    ? ["/d", "/s", "/c", "npm audit --omit=dev --json"]
+    : ["audit", "--omit=dev", "--json"];
+const audit = spawnSync(npmCommand, npmArgs, {
   cwd: new URL("..", import.meta.url),
   encoding: "utf8",
   maxBuffer: 16 * 1024 * 1024,
