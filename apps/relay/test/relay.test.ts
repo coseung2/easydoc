@@ -8,6 +8,22 @@ const TRANSFER_ID = "123e4567-e89b-42d3-a456-426614174000";
 class FakeSocket implements RelaySocket { sent: RelayPayload[] = []; closed = false; send(data: RelayPayload) { this.sent.push(data); } close() { this.closed = true; } }
 const credential = (role: "mobile" | "desktop", deviceId: string): SessionCredential => ({ version: 1, roomId: "room-a", deviceId, role, expiresAt: 1800000000000 });
 
+test("desktop alias updates are authenticated and forwarded, including after mobile reconnect", () => {
+  const room = new RelayRoom(); const desktop = new FakeSocket(); const mobile = new FakeSocket();
+  room.attach(credential("desktop", "school-pc"), desktop);
+  const profile = JSON.stringify({ type: "desktop:profile", desktopId: "school-pc", desktopAlias: "교무실 PC" });
+  assert.doesNotThrow(() => room.handle("desktop", profile));
+  room.attach(credential("mobile", "phone"), mobile);
+  room.handle("desktop", profile);
+  assert.deepEqual(JSON.parse(String(mobile.sent.at(-1))), JSON.parse(profile));
+  assert.throws(() => room.handle("mobile", profile), /pairing_invalid/);
+  assert.throws(() => room.handle("desktop", profile.replace("school-pc", "other-pc")), /pairing_invalid/);
+  room.detach("mobile", mobile);
+  const reconnected = new FakeSocket(); room.attach(credential("mobile", "phone"), reconnected);
+  room.handle("desktop", profile.replace("교무실 PC", "새 이름"));
+  assert.equal(JSON.parse(String(reconnected.sent.at(-1))).desktopAlias, "새 이름");
+});
+
 test("session credentials reject tampering and expiration", async () => {
   const token = await signSessionCredential(credential("desktop", "school-pc"), SECRET);
   assert.equal((await verifySessionCredential(token, SECRET, 1700000000000)).deviceId, "school-pc");

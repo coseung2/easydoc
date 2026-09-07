@@ -1,4 +1,4 @@
-import { parseTransferControlMessage } from "../../../packages/protocol/src/index.ts";
+import { parseDesktopProfileMessage, parseTransferControlMessage } from "../../../packages/protocol/src/index.ts";
 import type { DeviceRole, SessionCredential } from "./auth.ts";
 
 export type RelayPayload = string | ArrayBuffer | Uint8Array;
@@ -37,6 +37,14 @@ export class RelayRoom {
       return;
     }
 
+    const profile = parseDesktopProfileMessage(JSON.parse(data));
+    if (profile) {
+      if (role !== "desktop" || source.deviceId !== profile.desktopId) throw new Error("pairing_invalid");
+      // No relay persistence: the desktop publishes its current profile whenever
+      // the peer reconnects, including after this room is recreated.
+      destination?.socket.send(JSON.stringify(profile));
+      return;
+    }
     const message = parseTransferControlMessage(data);
     if (message.type === "transfer:start" && role === "mobile") {
       if (!destination || destination.deviceId !== message.destinationDeviceId) {

@@ -1,4 +1,5 @@
 import * as SecureStore from "expo-secure-store";
+import { applyDesktopAlias } from "./profile.ts";
 import { generateDeviceKeyPair, type DeviceKeyPair } from "../../../../packages/crypto/src/index.ts";
 import { pairingRefKey, parsePairingPayload, type PairingPayload, type PairingRef } from "../../../../packages/protocol/src/index.ts";
 
@@ -18,6 +19,27 @@ export type StoredMobilePairing = {
 export type StoredMobilePairings = StoredMobilePairing[];
 export type SessionInfo = { token: string; expiresAt: number; peerPublicKey: string };
 export type { PairingRef };
+
+// Serialize read/modify/write operations so simultaneous room updates cannot
+// overwrite each other or resurrect a pairing removed while a write awaits I/O.
+let pairingWrite: Promise<unknown> = Promise.resolve();
+function withPairingWrite<T>(operation: () => Promise<T>): Promise<T> {
+  const result = pairingWrite.then(operation, operation);
+  pairingWrite = result.catch(() => undefined);
+  return result;
+}
+
+export async function updateStoredDesktopAlias(ref: PairingRef, desktopAlias: string): Promise<boolean> {
+  return withPairingWrite(async () => {
+    const pairings = await getStoredPairings();
+    const target = pairings.find((item) => matchesPairing(item, ref));
+    if (!target) return false;
+    if (target.desktopAlias !== desktopAlias) {
+      await SecureStore.setItemAsync(PAIRING_KEY, JSON.stringify(applyDesktopAlias(pairings, ref, desktopAlias)));
+    }
+    return true;
+  });
+}
 
 export function getPairingKey(pairing: PairingRef): string {
   return pairingRefKey(pairing);
@@ -77,6 +99,7 @@ export async function selectPairing(ref: PairingRef | string): Promise<StoredMob
 }
 
 export async function removePairing(ref: PairingRef | string): Promise<StoredMobilePairings> {
+  return withPairingWrite(async () => {
   const storedPairings = await getStoredPairings();
   const pairings = storedPairings.filter((pairing) => !matchesPairing(pairing, ref));
   await SecureStore.setItemAsync(PAIRING_KEY, JSON.stringify(pairings));
@@ -88,6 +111,7 @@ export async function removePairing(ref: PairingRef | string): Promise<StoredMob
     else await SecureStore.deleteItemAsync(SELECTED_PAIRING_KEY);
   }
   return pairings;
+  });
 }
 
 export async function claimPairing(relayBaseUrl: string, qrPayload: string): Promise<StoredMobilePairing> {
@@ -99,9 +123,11 @@ export async function claimPairing(relayBaseUrl: string, qrPayload: string): Pro
     mobilePublicKey: identity.publicKey,
   });
   const stored: StoredMobilePairing = { roomId: result.roomId, desktopId: result.desktopId, desktopPublicKey: result.desktopPublicKey, desktopAlias: pairing.desktopAlias, mobileSecret: result.mobileSecret };
-  const pairings = (await getStoredPairings()).filter((item) => !matchesPairing(item, stored));
-  await SecureStore.setItemAsync(PAIRING_KEY, JSON.stringify([stored, ...pairings]));
-  await SecureStore.setItemAsync(SELECTED_PAIRING_KEY, getPairingKey(stored));
+  await withPairingWrite(async () => {
+    const pairings = (await getStoredPairings()).filter((item) => !matchesPairing(item, stored));
+    await SecureStore.setItemAsync(PAIRING_KEY, JSON.stringify([stored, ...pairings]));
+    await SecureStore.setItemAsync(SELECTED_PAIRING_KEY, getPairingKey(stored));
+  });
   return stored;
 }
 

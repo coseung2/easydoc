@@ -17,7 +17,7 @@ use std::{
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, State, WindowEvent,
+    Emitter, Manager, State, WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_dialog::DialogExt;
@@ -128,6 +128,11 @@ enum Control {
         device_id: String,
         online: bool,
     },
+    #[serde(rename = "transfer:cancel")]
+    Cancel {
+        #[serde(rename = "transferId")]
+        transfer_id: String,
+    },
     #[serde(other)]
     Other,
 }
@@ -160,6 +165,9 @@ struct ResumeMeta {
 }
 
 struct AppState {
+    app: Option<tauri::AppHandle>,
+    alias_changed: tokio::sync::watch::Sender<String>,
+    settings_write: tokio::sync::Mutex<()>,
     settings: Mutex<DesktopSettings>,
     pairings: Mutex<Vec<PairingState>>,
     inbox: Mutex<Vec<InboxItem>>,
@@ -401,13 +409,23 @@ async fn read_pairings() -> Vec<PairingState> {
 async fn persist_pairings(state: &Arc<AppState>) -> Result<(), String> {
     let _guard = state.pairing_write.lock().await;
     let pairings = state.pairings.lock().unwrap().clone();
-    write_json(&pairings_path(), &pairings).await
+    write_json(&pairings_path(), &pairings).await?;
+    emit_changed(state, "pairings");
+    Ok(())
 }
 
 async fn persist_inbox(state: &Arc<AppState>) -> Result<(), String> {
     let _guard = state.inbox_write.lock().await;
     let inbox = state.inbox.lock().unwrap().clone();
-    write_json(&inbox_path(), &inbox).await
+    write_json(&inbox_path(), &inbox).await?;
+    emit_changed(state, "inbox");
+    Ok(())
+}
+
+fn emit_changed(state: &AppState, section: &str) {
+    if let Some(app) = &state.app {
+        let _ = app.emit("easydoc:changed", serde_json::json!({ "section": section }));
+    }
 }
 
 fn load_initial() -> (DesktopSettings, Vec<PairingState>, Vec<InboxItem>) {
@@ -477,6 +495,8 @@ fn update_receiver_status(
     }
     drop(statuses);
     refresh_settings_flags(state);
+    emit_changed(state, "settings");
+    emit_changed(state, "pairings");
 }
 
 fn remember_mobile_id(state: &Arc<AppState>, room_id: &str, mobile_id: &str) -> bool {
@@ -561,21 +581,21 @@ async fn set_desktop_alias(
     if alias.is_empty() || alias.chars().count() > 80 {
         return Err("invalid_desktop_alias".into());
     }
-    let snapshot = {
-        let mut settings = state.settings.lock().unwrap();
-        settings.desktop_alias = alias.to_string();
-        settings.clone()
-    };
+    let _settings_guard = state.settings_write.lock().await;
+    let mut snapshot = state.settings.lock().unwrap().clone();
+    snapshot.desktop_alias = alias.to_string();
     write_json(&settings_path(), &snapshot).await?;
-    let pairings = {
-        let mut pairings = state.pairings.lock().unwrap().clone();
-        for pairing in &mut pairings {
+    // Settings is the authoritative persisted name; publishing follows that write.
+    // Pairing labels are legacy snapshots and are reconciled on the next save.
+    state.settings.lock().unwrap().desktop_alias = alias.to_string();
+    {
+        let mut pairings = state.pairings.lock().unwrap();
+        for pairing in pairings.iter_mut() {
             pairing.desktop_alias = alias.to_string();
         }
-        pairings
-    };
-    *state.pairings.lock().unwrap() = pairings;
-    persist_pairings(state.inner()).await?;
+    }
+    state.alias_changed.send_replace(alias.to_string());
+    emit_changed(state.inner(), "settings");
     Ok(snapshot)
 }
 
@@ -589,12 +609,12 @@ async fn choose_receive_dir(
         return Ok(None);
     };
     fs::create_dir_all(&path).await.map_err(|e| e.to_string())?;
-    let snapshot = {
-        let mut settings = state.settings.lock().unwrap();
-        settings.receive_dir = path.to_string_lossy().into_owned();
-        settings.clone()
-    };
+    let _settings_guard = state.settings_write.lock().await;
+    let mut snapshot = state.settings.lock().unwrap().clone();
+    snapshot.receive_dir = path.to_string_lossy().into_owned();
     write_json(&settings_path(), &snapshot).await?;
+    state.settings.lock().unwrap().receive_dir = snapshot.receive_dir.clone();
+    emit_changed(state.inner(), "settings");
     Ok(Some(snapshot.receive_dir))
 }
 
@@ -888,12 +908,19 @@ async fn receiver_loop(
     result
 }
 
+fn desktop_profile_message(device_id: &str, alias: &str) -> Message {
+    Message::Text(serde_json::json!({
+        "type": "desktop:profile", "desktopId": device_id, "desktopAlias": alias
+    }).to_string().into())
+}
+
 async fn receiver_connection(
     app: tauri::AppHandle,
     state: Arc<AppState>,
     settings: DesktopSettings,
     pairing: PairingState,
 ) -> Result<(), String> {
+    let mut alias_updates = state.alias_changed.subscribe();
     let session = session_token(&settings, &pairing).await?;
     update_receiver_status(&state, &pairing.room_id, Some(true), Some(false), None);
     let peer_public_key = session.peer_public_key.clone();
@@ -907,10 +934,17 @@ async fn receiver_connection(
         .map_err(|e| e.to_string())?;
     let (mut write, mut read) = socket.split();
     update_receiver_status(&state, &pairing.room_id, Some(true), Some(true), None);
-    let root = PathBuf::from(&settings.receive_dir);
-    fs::create_dir_all(&root).await.map_err(|e| e.to_string())?;
     let mut current: Option<ReceiveState> = None;
-    while let Some(message) = read.next().await {
+    loop {
+        let message = tokio::select! {
+            changed = alias_updates.changed() => {
+                if changed.is_err() { break; }
+                let alias = alias_updates.borrow_and_update().clone();
+                write.send(desktop_profile_message(&pairing.device_id, &alias)).await.map_err(|e| e.to_string())?;
+                continue;
+            }
+            message = read.next() => match message { Some(message) => message, None => break },
+        };
         match message.map_err(|e| e.to_string())? {
             Message::Text(text) => match serde_json::from_str::<Control>(&text) {
                 Ok(Control::Presence {
@@ -918,11 +952,12 @@ async fn receiver_connection(
                     device_id,
                     online,
                 }) => {
-                    if role == "mobile"
-                        && online
-                        && remember_mobile_id(&state, &pairing.room_id, &device_id)
-                    {
-                        persist_pairings(&state).await?;
+                    if role == "mobile" && online {
+                        if remember_mobile_id(&state, &pairing.room_id, &device_id) {
+                            persist_pairings(&state).await?;
+                        }
+                        let alias = state.settings.lock().unwrap().desktop_alias.clone();
+                        write.send(desktop_profile_message(&pairing.device_id, &alias)).await.map_err(|e| e.to_string())?;
                     }
                 }
                 Ok(Control::Start {
@@ -933,6 +968,10 @@ async fn receiver_connection(
                     sha256,
                     chunk_size,
                 }) => {
+                    // Resolve the configured destination for each new transfer;
+                    // changing the folder must not require restarting this socket.
+                    let root = PathBuf::from(&state.settings.lock().unwrap().receive_dir);
+                    fs::create_dir_all(&root).await.map_err(|e| e.to_string())?;
                     if destination_device_id != pairing.device_id {
                         write.send(Message::Text(serde_json::json!({"type":"transfer:reject","transferId":transfer_id,"reason":"destination_offline"}).to_string().into())).await.map_err(|e|e.to_string())?;
                         continue;
@@ -1000,6 +1039,13 @@ async fn receiver_connection(
                     write_json(&resume_path, &meta).await?;
                     write.send(Message::Text(serde_json::json!({"type":"transfer:accept","transferId":transfer_id,"resumeFromChunk":next_chunk}).to_string().into())).await.map_err(|e|e.to_string())?;
                 }
+                Ok(Control::Cancel { transfer_id }) => {
+                    if current.as_ref().is_some_and(|receive| receive.transfer_id.to_string() == transfer_id) {
+                        // Drop the open file; keep its durable partial data available
+                        // for a later explicit retry instead of acknowledging success.
+                        current = None;
+                    }
+                }
                 _ => {}
             },
             Message::Binary(frame) => {
@@ -1050,6 +1096,7 @@ async fn receiver_connection(
                         let done = current.take().unwrap();
                         let _receive_guard = state.receive_write.lock().await;
                         let transfer_id = done.transfer_id;
+                        let root = done.part_path.parent().ok_or("invalid_path")?.to_path_buf();
                         let (item, digest) = finalize(done, &root).await?;
                         state.inbox.lock().unwrap().insert(0, item.clone());
                         persist_inbox(&state).await?;
@@ -1251,6 +1298,9 @@ pub fn run() {
                 })
                 .collect();
             let state = Arc::new(AppState {
+                app: Some(app.handle().clone()),
+                alias_changed: tokio::sync::watch::channel(settings.desktop_alias.clone()).0,
+                settings_write: tokio::sync::Mutex::new(()),
                 settings: Mutex::new(settings),
                 pairings: Mutex::new(pairings),
                 inbox: Mutex::new(inbox),
@@ -1324,6 +1374,25 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_message_contains_only_current_public_metadata() {
+        let message = desktop_profile_message("desktop_a", "교무실 PC");
+        let Message::Text(text) = message else { panic!("expected text") };
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value, serde_json::json!({"type":"desktop:profile","desktopId":"desktop_a","desktopAlias":"교무실 PC"}));
+    }
+
+    #[tokio::test]
+    async fn alias_watch_retains_latest_value_without_connected_receivers() {
+        let (sender, _) = tokio::sync::watch::channel("old".to_string());
+        sender.send_replace("offline change".to_string());
+        let mut receiver = sender.subscribe();
+        assert_eq!(&*receiver.borrow_and_update(), "offline change");
+        sender.send_replace("online change".to_string());
+        receiver.changed().await.unwrap();
+        assert_eq!(&*receiver.borrow_and_update(), "online change");
+    }
 
     #[test]
     fn legacy_settings_default_to_a_local_alias() {
@@ -1411,6 +1480,9 @@ mod tests {
             },
         ];
         let state = Arc::new(AppState {
+            app: None,
+            alias_changed: tokio::sync::watch::channel(default_desktop_alias()).0,
+            settings_write: tokio::sync::Mutex::new(()),
             settings: Mutex::new(DesktopSettings {
                 desktop_alias: default_desktop_alias(),
                 paired_count: pairings.len(),
