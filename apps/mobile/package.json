@@ -12,6 +12,7 @@
   },
   "main": "index.ts",
   "dependencies": {
+    "@dariyd/react-native-pdf-page-image": "^2.0.0",
     "@easydoc/crypto": "0.0.1",
     "@easydoc/image-processing": "0.0.1",
     "@easydoc/pdf-tools": "0.0.1",

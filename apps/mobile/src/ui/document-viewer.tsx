@@ -72,13 +72,17 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
   }, [query, text]);
   const matchingPages = useMemo(() => searchRecognizedPages(recognizedPages, query), [recognizedPages, query]);
   const pageIndexes = useMemo(() => Array.from({ length: pageCount }, (_, index) => index), [pageCount]);
-  const renderPageImage = useCallback(async (index: number) => {
+  const renderRasterizedPage = useCallback(async (index: number, maxDimension?: number, quality?: number) => {
     if (!file?.uri || !isPdf(file)) throw new Error("pdf_uri_required");
     const rasterizer = await getPdfPageRasterizer();
-    const uri = await rasterizer.renderPage({ uri: file.uri, pageIndex: index });
+    return rasterizer.renderPage({ uri: file.uri, pageIndex: index, maxDimension, quality });
+  }, [file?.uri]);
+  const renderPageImage = useCallback(async (index: number) => {
+    const uri = await renderRasterizedPage(index);
     setPageImages((current) => current[index] ? current : { ...current, [index]: uri });
     return uri;
-  }, [file?.uri]);
+  }, [renderRasterizedPage]);
+  const renderThumbnailImage = useCallback((index: number) => renderRasterizedPage(index, 240, 0.72), [renderRasterizedPage]);
 
   useEffect(() => {
     const uri = file?.uri;
@@ -176,7 +180,7 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
       {file.uri && isText(file) && <ScrollView style={styles.textView}><Text selectable style={styles.textContent}>{text}</Text></ScrollView>}
       {file.uri && !isPdf(file) && !isImage(file) && !isText(file) && <UnsupportedBody message="HWP/HWPX 및 Office 문서는 기기 내 미리보기를 지원하지 않습니다. 설치된 한글 또는 문서 앱에서 원본 파일을 열 수 있습니다." actionLabel="외부 앱에서 열기" onAction={openExternally} />}
     </View>
-    {pagePickerOpen && isPdf(file) && <View style={styles.pagePicker}><View style={styles.pagePickerHeader}><Text style={styles.pagePickerTitle}>페이지 이동</Text><Pressable onPress={() => setPagePickerOpen(false)}><Feather name="x" size={18} color={colors.textMuted} /></Pressable></View>{pageImagesLoading ? <View style={styles.pagePickerLoading}><ActivityIndicator color={colors.primary} /><Text style={styles.pagePickerLoadingText}>페이지 수 확인 중...</Text></View> : <FlatList horizontal data={pageIndexes} keyExtractor={(index) => String(index)} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.readerThumbnailRow} initialNumToRender={6} maxToRenderPerBatch={6} windowSize={3} getItemLayout={(_, index) => ({ length: 70, offset: 70 * index, index })} renderItem={({ item: index }) => <RasterizedThumbnail index={index} active={page === index + 1} renderPage={renderPageImage} onPress={() => { void jumpToPage(index); }} />} />}</View>}
+    {pagePickerOpen && isPdf(file) && <View style={styles.pagePicker}><View style={styles.pagePickerHeader}><Text style={styles.pagePickerTitle}>페이지 이동</Text><Pressable onPress={() => setPagePickerOpen(false)}><Feather name="x" size={18} color={colors.textMuted} /></Pressable></View>{pageImagesLoading ? <View style={styles.pagePickerLoading}><ActivityIndicator color={colors.primary} /><Text style={styles.pagePickerLoadingText}>페이지 수 확인 중...</Text></View> : <FlatList horizontal data={pageIndexes} keyExtractor={(index) => String(index)} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.readerThumbnailRow} initialNumToRender={6} maxToRenderPerBatch={6} windowSize={3} getItemLayout={(_, index) => ({ length: 70, offset: 70 * index, index })} renderItem={({ item: index }) => <RasterizedThumbnail index={index} active={page === index + 1} renderPage={renderThumbnailImage} onPress={() => { void jumpToPage(index); }} />} />}</View>}
     {error && <Text style={styles.error}>{error}</Text>}
   </View>;
 }
@@ -188,13 +192,17 @@ export function PresentationScreen({ file, onBack }: { file: ViewableDocument | 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const pageIndexes = useMemo(() => Array.from({ length: pageCount }, (_, index) => index), [pageCount]);
-  const renderPageImage = useCallback(async (index: number) => {
+  const renderRasterizedPage = useCallback(async (index: number, maxDimension?: number, quality?: number) => {
     if (!file?.uri || !isPdf(file)) throw new Error("pdf_uri_required");
     const rasterizer = await getPdfPageRasterizer();
-    const uri = await rasterizer.renderPage({ uri: file.uri, pageIndex: index });
+    return rasterizer.renderPage({ uri: file.uri, pageIndex: index, maxDimension, quality });
+  }, [file?.uri]);
+  const renderPageImage = useCallback(async (index: number) => {
+    const uri = await renderRasterizedPage(index);
     setPages((current) => current[index] ? current : { ...current, [index]: uri });
     return uri;
-  }, [file?.uri]);
+  }, [renderRasterizedPage]);
+  const renderThumbnailImage = useCallback((index: number) => renderRasterizedPage(index, 220, 0.7), [renderRasterizedPage]);
 
   useEffect(() => {
     setPage(1); setPageCount(0); setPages({}); setError("");
@@ -234,7 +242,7 @@ export function PresentationScreen({ file, onBack }: { file: ViewableDocument | 
       {!loading && !pages[page - 1] && <Text style={styles.loadingText}>{error || "페이지를 렌더링하지 못했습니다."}</Text>}
       {count > 1 && <><Pressable style={[styles.pageArrow, styles.pageArrowLeft]} onPress={previous} disabled={page <= 1}><Feather name="chevron-left" size={30} color={page <= 1 ? "#475569" : "#FFFFFF"} /></Pressable><Pressable style={[styles.pageArrow, styles.pageArrowRight]} onPress={next} disabled={page >= count}><Feather name="chevron-right" size={30} color={page >= count ? "#475569" : "#FFFFFF"} /></Pressable></>}
     </View>
-    <FlatList horizontal data={pageIndexes} keyExtractor={(index) => String(index)} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbnailRow} initialNumToRender={5} maxToRenderPerBatch={5} windowSize={3} getItemLayout={(_, index) => ({ length: 84, offset: 84 * index, index })} renderItem={({ item: index }) => <RasterizedThumbnail index={index} active={page === index + 1} presentation renderPage={renderPageImage} onPress={() => setPage(index + 1)} />} />
+    <FlatList horizontal data={pageIndexes} keyExtractor={(index) => String(index)} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbnailRow} initialNumToRender={5} maxToRenderPerBatch={5} windowSize={3} getItemLayout={(_, index) => ({ length: 84, offset: 84 * index, index })} renderItem={({ item: index }) => <RasterizedThumbnail index={index} active={page === index + 1} presentation renderPage={renderThumbnailImage} onPress={() => setPage(index + 1)} />} />
     <Text style={styles.presentationHint}>좌우 버튼 또는 썸네일로 페이지 이동</Text>
   </View>;
 }

@@ -2,6 +2,7 @@ export type RenderPdfPageRequest = {
   uri: string;
   pageIndex: number;
   maxDimension?: number;
+  /** Output quality normalized to 0..1. */
   quality?: number;
 };
 
