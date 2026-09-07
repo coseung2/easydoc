@@ -2,6 +2,10 @@
 
 Date: 2026-09-07 (Asia/Seoul)
 
+Implementation follow-up: [`ux-improvements.md`](ux-improvements.md) records the
+local changes and verification/rollout boundaries. The findings below remain
+the original source review, not a claim that all native acceptance work is done.
+
 This is a source-backed review of desktop and mobile interaction feedback. It
 does not claim live device timing measurements. Native Windows and Android
 behavior still requires a separate install/smoke pass after the listed work is

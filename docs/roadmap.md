@@ -69,7 +69,7 @@ Mobile:
 - Destination presence
 - Automatic retry when desktop returns online
 
-Open interaction-feedback work from the 2026-09-07 source review:
+Interaction-feedback scope from the 2026-09-07 source review:
 
 - Desktop save, button, and dialog feedback
 - Mobile send-queue duplication, save/transfer split, and stall recovery
@@ -78,6 +78,8 @@ Open interaction-feedback work from the 2026-09-07 source review:
 - Document-list and polling refresh optimization
 
 See [`ux-review.md`](ux-review.md).
+Local implementation and remaining native/rollout work are tracked in
+[`ux-improvements.md`](ux-improvements.md).
 
 ## Milestone 3 — PDF tools
 

@@ -138,7 +138,8 @@ For Cloudflare deployment, native app builds, and the real school-network accept
 
 Interaction feedback, persistence, caching, and polling issues found in the
 2026-09-07 source review are recorded in [`docs/ux-review.md`](docs/ux-review.md).
-That review is a backlog, not completed product work.
+The original review is a backlog. Local implementation progress and remaining
+native/rollout boundaries are recorded in [`docs/ux-improvements.md`](docs/ux-improvements.md).
 
 ### Deliberately separate/later tracks
 
