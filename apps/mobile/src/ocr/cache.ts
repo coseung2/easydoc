@@ -59,7 +59,7 @@ export function getOrLoadRecognizedPages(
   loader: () => Promise<RecognizedPage[]>,
   language = "default",
 ): Promise<RecognizedPage[]> {
-  return resultCache.getOrLoad(ocrCacheKey(file, language), async () => clonePages(await loader()));
+  return resultCache.getOrLoad(ocrCacheKey(file, language), async () => clonePages(await loader())).then(clonePages);
 }
 
 export function getCachedOcrSearchQuery(file: OcrDocument, language = "default"): string {
