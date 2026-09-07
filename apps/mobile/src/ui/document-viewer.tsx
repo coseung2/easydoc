@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { PdfView } from "@kishannareshpal/expo-pdf";
 import { File } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import { convert as pdfToImages } from "react-native-pdf-to-image";
+import { getPdfPageRasterizer } from "../pdf/rasterizer-backend.ts";
 import { colors, radius } from "./theme";
 import { recognizeDocument } from "../ocr/client";
 import { joinRecognizedPages, searchRecognizedPages, type RecognizedPage } from "../ocr/text";
-import { discardRenderedPages } from "../documents/rendered-pages";
 
 export type ViewableDocument = { name: string; uri?: string; mime?: string; type: string };
 
@@ -26,6 +25,19 @@ function externalMime(file: ViewableDocument): string {
   return file.mime ?? "application/octet-stream";
 }
 
+function RasterizedThumbnail({ index, active, presentation = false, renderPage, onPress }: { index: number; active: boolean; presentation?: boolean; renderPage: (index: number) => Promise<string>; onPress: () => void }) {
+  const [uri, setUri] = useState("");
+  useEffect(() => {
+    let mounted = true;
+    renderPage(index).then((value) => { if (mounted) setUri(value); }).catch(() => {});
+    return () => { mounted = false; };
+  }, [index, renderPage]);
+  const containerStyle = presentation ? [styles.thumbnail, active && styles.thumbnailActive] : [styles.readerThumbnail, active && styles.readerThumbnailActive];
+  const imageStyle = presentation ? styles.thumbnailImage : styles.readerThumbnailImage;
+  const numberStyle = presentation ? styles.thumbnailNumber : styles.readerThumbnailNumber;
+  return <Pressable style={containerStyle} onPress={onPress} disabled={!uri}>{uri ? <Image source={{ uri }} style={imageStyle} resizeMode="cover" /> : <View style={styles.thumbnailLoading}><ActivityIndicator size="small" color={presentation ? "#94A3B8" : colors.primary} /></View>}<Text style={numberStyle}>{index + 1}</Text></Pressable>;
+}
+
 export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }: { file: ViewableDocument | null; onBack: () => void; onPresent: () => void; onSend?: () => void | Promise<void>; onOcr?: () => void }) {
   const [page, setPage] = useState(1);
   const [pageCount, setPageCount] = useState(0);
@@ -33,7 +45,7 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
   const [error, setError] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [pageImages, setPageImages] = useState<string[]>([]);
+  const [pageImages, setPageImages] = useState<Record<number, string>>({});
   const [pagePickerOpen, setPagePickerOpen] = useState(false);
   const [pageImagesLoading, setPageImagesLoading] = useState(false);
   const [jumpedPage, setJumpedPage] = useState<number | null>(null);
@@ -43,15 +55,14 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
   const recognitionRunning = useRef(false);
   const generation = useRef(0);
   const recognitionAbort = useRef<AbortController | null>(null);
-  const renderedPages = useRef<string[]>([]);
 
   useEffect(() => {
-    setPage(1); setPageCount(0); setText(""); setError(""); setSearchOpen(false); setQuery(""); setPageImages([]); setPagePickerOpen(false); setPageImagesLoading(false); setJumpedPage(null);
+    setPage(1); setPageCount(0); setText(""); setError(""); setSearchOpen(false); setQuery(""); setPageImages({}); setPagePickerOpen(false); setPageImagesLoading(false); setJumpedPage(null);
     generation.current += 1;
     const current = generation.current;
     setRecognizedPages([]); setRecognizing(false); recognitionRunning.current = false;
     if (file?.uri && isText(file)) new File(file.uri).text().then(setText).catch((cause) => setError(String(cause)));
-    return () => { if (generation.current === current) generation.current += 1; recognitionAbort.current?.abort(); discardRenderedPages(renderedPages.current); renderedPages.current = []; };
+    return () => { if (generation.current === current) generation.current += 1; recognitionAbort.current?.abort(); };
   }, [file?.uri]);
 
   const searchCount = useMemo(() => {
@@ -60,6 +71,20 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
     return text.toLocaleLowerCase().split(needle).length - 1;
   }, [query, text]);
   const matchingPages = useMemo(() => searchRecognizedPages(recognizedPages, query), [recognizedPages, query]);
+  const pageIndexes = useMemo(() => Array.from({ length: pageCount }, (_, index) => index), [pageCount]);
+  const renderPageImage = useCallback(async (index: number) => {
+    if (!file?.uri || !isPdf(file)) throw new Error("pdf_uri_required");
+    const rasterizer = await getPdfPageRasterizer();
+    const uri = await rasterizer.renderPage({ uri: file.uri, pageIndex: index });
+    setPageImages((current) => current[index] ? current : { ...current, [index]: uri });
+    return uri;
+  }, [file?.uri]);
+
+  useEffect(() => {
+    const uri = file?.uri;
+    if (!uri || !isPdf(file)) return;
+    return () => { void getPdfPageRasterizer().then((rasterizer) => rasterizer.release?.(uri)); };
+  }, [file?.uri]);
 
   if (!file) return <Unsupported title="선택된 문서가 없습니다" onBack={onBack} />;
 
@@ -97,18 +122,17 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
     if (!file.uri || !isPdf(file)) return;
     setError("");
     setPagePickerOpen(true);
-    if (pageImages.length > 0) { if (targetPage !== undefined) jumpToPage(targetPage); return; }
+    if (pageCount > 0) {
+      if (targetPage !== undefined) await jumpToPage(targetPage);
+      return;
+    }
     if (pageImagesLoading) return;
     setPageImagesLoading(true);
-    const current = generation.current;
     try {
-      const result = await pdfToImages(file.uri);
-      const output = (result.outputFiles ?? []).map((uri) => new File(uri).uri);
-      if (generation.current !== current) { discardRenderedPages(output); return; }
-      renderedPages.current = output;
-      setPageImages(output);
-      if (output.length > 0) setPageCount(output.length);
-      if (targetPage !== undefined && output[targetPage]) { setJumpedPage(targetPage); setPage(targetPage + 1); setPagePickerOpen(false); }
+      const rasterizer = await getPdfPageRasterizer();
+      const count = await rasterizer.getPageCount(file.uri);
+      setPageCount(count);
+      if (targetPage !== undefined && targetPage >= 0 && targetPage < count) await jumpToPage(targetPage);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setPagePickerOpen(false);
@@ -117,11 +141,16 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
     }
   };
 
-  const jumpToPage = (index: number) => {
-    setJumpedPage(index);
-    setPage(index + 1);
-    setPageCount(pageImages.length);
-    setPagePickerOpen(false);
+  const jumpToPage = async (index: number) => {
+    if (index < 0 || index >= pageCount) return;
+    try {
+      await renderPageImage(index);
+      setJumpedPage(index);
+      setPage(index + 1);
+      setPagePickerOpen(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
   };
 
   return <View style={styles.root}>
@@ -142,39 +171,57 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
     <View style={styles.viewer}>
       {!file.uri && <UnsupportedBody message="이 예시 문서는 실제 로컬 파일이 아닙니다." />}
       {file.uri && isPdf(file) && jumpedPage === null && <PdfView style={styles.pdf} uri={file.uri} pageGap={10} doubleTapToZoom autoScale fitMode="width" onLoadComplete={({ pageCount: count }) => setPageCount(count)} onPageChanged={({ pageIndex, pageCount: count }) => { setPage(pageIndex + 1); setPageCount(count); }} onError={({ message }) => setError(message)} />}
-      {file.uri && isPdf(file) && jumpedPage !== null && pageImages[jumpedPage] && <View style={styles.jumpView}><ScrollView contentContainerStyle={styles.jumpImageWrap} maximumZoomScale={4} minimumZoomScale={1}><Image source={{ uri: pageImages[jumpedPage] }} style={styles.jumpImage} resizeMode="contain" /></ScrollView><View style={styles.jumpControls}><Pressable style={styles.jumpButton} disabled={jumpedPage <= 0} onPress={() => jumpToPage(Math.max(0, jumpedPage - 1))}><Feather name="chevron-left" size={18} color={jumpedPage <= 0 ? colors.textMuted : colors.text} /></Pressable><Pressable style={styles.continuousButton} onPress={() => setJumpedPage(null)}><Feather name="list" size={15} color={colors.primary} /><Text style={styles.continuousText}>연속 보기</Text></Pressable><Pressable style={styles.jumpButton} disabled={jumpedPage >= pageImages.length - 1} onPress={() => jumpToPage(Math.min(pageImages.length - 1, jumpedPage + 1))}><Feather name="chevron-right" size={18} color={jumpedPage >= pageImages.length - 1 ? colors.textMuted : colors.text} /></Pressable></View></View>}
+      {file.uri && isPdf(file) && jumpedPage !== null && pageImages[jumpedPage] && <View style={styles.jumpView}><ScrollView contentContainerStyle={styles.jumpImageWrap} maximumZoomScale={4} minimumZoomScale={1}><Image source={{ uri: pageImages[jumpedPage] }} style={styles.jumpImage} resizeMode="contain" /></ScrollView><View style={styles.jumpControls}><Pressable style={styles.jumpButton} disabled={jumpedPage <= 0} onPress={() => jumpToPage(Math.max(0, jumpedPage - 1))}><Feather name="chevron-left" size={18} color={jumpedPage <= 0 ? colors.textMuted : colors.text} /></Pressable><Pressable style={styles.continuousButton} onPress={() => setJumpedPage(null)}><Feather name="list" size={15} color={colors.primary} /><Text style={styles.continuousText}>연속 보기</Text></Pressable><Pressable style={styles.jumpButton} disabled={jumpedPage >= pageCount - 1} onPress={() => jumpToPage(Math.min(pageCount - 1, jumpedPage + 1))}><Feather name="chevron-right" size={18} color={jumpedPage >= pageCount - 1 ? colors.textMuted : colors.text} /></Pressable></View></View>}
       {file.uri && isImage(file) && <ScrollView contentContainerStyle={styles.imageWrap} maximumZoomScale={4} minimumZoomScale={1}><Image source={{ uri: file.uri }} style={styles.image} resizeMode="contain" /></ScrollView>}
       {file.uri && isText(file) && <ScrollView style={styles.textView}><Text selectable style={styles.textContent}>{text}</Text></ScrollView>}
       {file.uri && !isPdf(file) && !isImage(file) && !isText(file) && <UnsupportedBody message="HWP/HWPX 및 Office 문서는 기기 내 미리보기를 지원하지 않습니다. 설치된 한글 또는 문서 앱에서 원본 파일을 열 수 있습니다." actionLabel="외부 앱에서 열기" onAction={openExternally} />}
     </View>
-    {pagePickerOpen && isPdf(file) && <View style={styles.pagePicker}><View style={styles.pagePickerHeader}><Text style={styles.pagePickerTitle}>페이지 이동</Text><Pressable onPress={() => setPagePickerOpen(false)}><Feather name="x" size={18} color={colors.textMuted} /></Pressable></View>{pageImagesLoading ? <View style={styles.pagePickerLoading}><ActivityIndicator color={colors.primary} /><Text style={styles.pagePickerLoadingText}>썸네일 준비 중...</Text></View> : <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.readerThumbnailRow}>{pageImages.map((uri, index) => <Pressable key={`${uri}-${index}`} style={[styles.readerThumbnail, page === index + 1 && styles.readerThumbnailActive]} onPress={() => jumpToPage(index)}><Image source={{ uri }} style={styles.readerThumbnailImage} resizeMode="cover" /><Text style={styles.readerThumbnailNumber}>{index + 1}</Text></Pressable>)}</ScrollView>}</View>}
+    {pagePickerOpen && isPdf(file) && <View style={styles.pagePicker}><View style={styles.pagePickerHeader}><Text style={styles.pagePickerTitle}>페이지 이동</Text><Pressable onPress={() => setPagePickerOpen(false)}><Feather name="x" size={18} color={colors.textMuted} /></Pressable></View>{pageImagesLoading ? <View style={styles.pagePickerLoading}><ActivityIndicator color={colors.primary} /><Text style={styles.pagePickerLoadingText}>페이지 수 확인 중...</Text></View> : <FlatList horizontal data={pageIndexes} keyExtractor={(index) => String(index)} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.readerThumbnailRow} initialNumToRender={6} maxToRenderPerBatch={6} windowSize={3} getItemLayout={(_, index) => ({ length: 70, offset: 70 * index, index })} renderItem={({ item: index }) => <RasterizedThumbnail index={index} active={page === index + 1} renderPage={renderPageImage} onPress={() => { void jumpToPage(index); }} />} />}</View>}
     {error && <Text style={styles.error}>{error}</Text>}
   </View>;
 }
 
 export function PresentationScreen({ file, onBack }: { file: ViewableDocument | null; onBack: () => void }) {
   const [page, setPage] = useState(1);
-  const [pages, setPages] = useState<string[]>([]);
+  const [pageCount, setPageCount] = useState(0);
+  const [pages, setPages] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const renderedPages = useRef<string[]>([]);
+  const pageIndexes = useMemo(() => Array.from({ length: pageCount }, (_, index) => index), [pageCount]);
+  const renderPageImage = useCallback(async (index: number) => {
+    if (!file?.uri || !isPdf(file)) throw new Error("pdf_uri_required");
+    const rasterizer = await getPdfPageRasterizer();
+    const uri = await rasterizer.renderPage({ uri: file.uri, pageIndex: index });
+    setPages((current) => current[index] ? current : { ...current, [index]: uri });
+    return uri;
+  }, [file?.uri]);
 
   useEffect(() => {
-    setPage(1); setPages([]); setError("");
+    setPage(1); setPageCount(0); setPages({}); setError("");
     if (!file?.uri || !isPdf(file)) return;
     let mounted = true;
     setLoading(true);
-    pdfToImages(file.uri).then((result) => {
-      const outputs = (result.outputFiles ?? []).map((uri) => new File(uri).uri);
-      if (!mounted) { discardRenderedPages(outputs); return; }
-      renderedPages.current = outputs; setPages(outputs);
-    }).catch((cause) => { if (mounted) setError(cause instanceof Error ? cause.message : String(cause)); }).finally(() => { if (mounted) setLoading(false); });
-    return () => { mounted = false; discardRenderedPages(renderedPages.current); renderedPages.current = []; };
+    getPdfPageRasterizer().then((rasterizer) => rasterizer.getPageCount(file.uri!)).then((count) => { if (mounted) setPageCount(count); }).catch((cause) => { if (mounted) { setError(cause instanceof Error ? cause.message : String(cause)); setLoading(false); } });
+    return () => {
+      mounted = false;
+      void getPdfPageRasterizer().then((rasterizer) => rasterizer.release?.(file.uri!));
+    };
   }, [file?.uri]);
+
+  useEffect(() => {
+    if (!file?.uri || !isPdf(file) || pageCount <= 0) return;
+    let mounted = true;
+    const currentIndex = page - 1;
+    setLoading(true);
+    renderPageImage(currentIndex).then(() => { if (mounted) setLoading(false); }).catch((cause) => { if (mounted) { setError(cause instanceof Error ? cause.message : String(cause)); setLoading(false); } });
+    const prefetch = [currentIndex - 1, currentIndex + 1, currentIndex + 2].filter((index) => index >= 0 && index < pageCount);
+    void Promise.allSettled(prefetch.map((index) => renderPageImage(index)));
+    return () => { mounted = false; };
+  }, [file?.uri, page, pageCount, renderPageImage]);
 
   if (!file || !file.uri || !isPdf(file)) return <Unsupported title="PDF 발표 모드" message="발표 모드는 현재 PDF 문서에서 사용할 수 있습니다." onBack={onBack} />;
 
-  const count = pages.length;
+  const count = pageCount;
   const previous = () => setPage((value) => Math.max(1, value - 1));
   const next = () => setPage((value) => Math.min(count || 1, value + 1));
   const share = async () => { if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri!, { mimeType: file.mime, dialogTitle: file.name }); };
@@ -184,10 +231,10 @@ export function PresentationScreen({ file, onBack }: { file: ViewableDocument | 
     <View style={styles.presentationStage}>
       {loading && <View style={styles.loading}><ActivityIndicator color="#FFFFFF" /><Text style={styles.loadingText}>페이지 준비 중...</Text></View>}
       {!loading && pages[page - 1] && <Image source={{ uri: pages[page - 1] }} style={styles.presentationImage} resizeMode="contain" />}
-      {!loading && !pages.length && <Text style={styles.loadingText}>{error || "페이지를 렌더링하지 못했습니다."}</Text>}
+      {!loading && !pages[page - 1] && <Text style={styles.loadingText}>{error || "페이지를 렌더링하지 못했습니다."}</Text>}
       {count > 1 && <><Pressable style={[styles.pageArrow, styles.pageArrowLeft]} onPress={previous} disabled={page <= 1}><Feather name="chevron-left" size={30} color={page <= 1 ? "#475569" : "#FFFFFF"} /></Pressable><Pressable style={[styles.pageArrow, styles.pageArrowRight]} onPress={next} disabled={page >= count}><Feather name="chevron-right" size={30} color={page >= count ? "#475569" : "#FFFFFF"} /></Pressable></>}
     </View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbnailRow}>{pages.map((uri, index) => <Pressable key={`${uri}-${index}`} style={[styles.thumbnail, page === index + 1 && styles.thumbnailActive]} onPress={() => setPage(index + 1)}><Image source={{ uri }} style={styles.thumbnailImage} resizeMode="cover" /><Text style={styles.thumbnailNumber}>{index + 1}</Text></Pressable>)}</ScrollView>
+    <FlatList horizontal data={pageIndexes} keyExtractor={(index) => String(index)} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.thumbnailRow} initialNumToRender={5} maxToRenderPerBatch={5} windowSize={3} getItemLayout={(_, index) => ({ length: 84, offset: 84 * index, index })} renderItem={({ item: index }) => <RasterizedThumbnail index={index} active={page === index + 1} presentation renderPage={renderPageImage} onPress={() => setPage(index + 1)} />} />
     <Text style={styles.presentationHint}>좌우 버튼 또는 썸네일로 페이지 이동</Text>
   </View>;
 }
@@ -219,6 +266,6 @@ const styles = StyleSheet.create({
   presentationRoot: { flex: 1, backgroundColor: "#0B1020" }, presentationHeader: { height: 58, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, presentationName: { color: "#FFFFFF", fontSize: 13, fontWeight: "700", maxWidth: 235 }, presentationHeaderRight: { flexDirection: "row", alignItems: "center", gap: 14 }, presentationCount: { color: "#CBD5E1", fontSize: 12 },
   presentationStage: { flex: 1, marginHorizontal: 12, borderRadius: 10, overflow: "hidden", backgroundColor: "#111827", alignItems: "center", justifyContent: "center" }, presentationImage: { width: "100%", height: "100%" }, loading: { alignItems: "center", gap: 10 }, loadingText: { color: "#94A3B8", fontSize: 11 },
   pageArrow: { position: "absolute", top: "45%", width: 48, height: 64, borderRadius: 12, backgroundColor: "rgba(15,23,42,0.68)", alignItems: "center", justifyContent: "center" }, pageArrowLeft: { left: 10 }, pageArrowRight: { right: 10 },
-  thumbnailRow: { minHeight: 76, alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8 }, thumbnail: { width: 76, height: 54, borderRadius: 7, overflow: "hidden", borderWidth: 1, borderColor: "#334155", backgroundColor: "#1E293B" }, thumbnailActive: { borderWidth: 2, borderColor: "#60A5FA" }, thumbnailImage: { width: "100%", height: "100%" }, thumbnailNumber: { position: "absolute", right: 3, bottom: 2, minWidth: 16, height: 16, borderRadius: 8, textAlign: "center", color: "#FFFFFF", fontSize: 9, lineHeight: 16, backgroundColor: "rgba(15,23,42,0.75)" },
+  thumbnailRow: { minHeight: 76, alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8 }, thumbnail: { width: 76, height: 54, borderRadius: 7, overflow: "hidden", borderWidth: 1, borderColor: "#334155", backgroundColor: "#1E293B" }, thumbnailActive: { borderWidth: 2, borderColor: "#60A5FA" }, thumbnailImage: { width: "100%", height: "100%" }, thumbnailLoading: { flex: 1, alignItems: "center", justifyContent: "center" }, thumbnailNumber: { position: "absolute", right: 3, bottom: 2, minWidth: 16, height: 16, borderRadius: 8, textAlign: "center", color: "#FFFFFF", fontSize: 9, lineHeight: 16, backgroundColor: "rgba(15,23,42,0.75)" },
   presentationHint: { height: 30, textAlign: "center", color: "#94A3B8", fontSize: 10, paddingTop: 5 },
 });
