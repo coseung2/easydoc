@@ -8,7 +8,7 @@ export type TabKey = "home" | "documents" | "scan" | "tools" | "settings";
 const tabs: { key: TabKey; label: string; icon: ComponentProps<typeof Feather>["name"] }[] = [
   { key: "home", label: "홈", icon: "home" },
   { key: "documents", label: "문서", icon: "file-text" },
-  { key: "scan", label: "스캔", icon: "maximize" },
+  { key: "scan", label: "촬영", icon: "camera" },
   { key: "tools", label: "도구", icon: "tool" },
   { key: "settings", label: "설정", icon: "settings" },
 ];
