@@ -1,1 +1,5 @@
+export * from './client.ts'
 export * from './incoming-transfer.ts'
+export * from './pairing.ts'
+export * from './storage.ts'
+export * from './types.ts'

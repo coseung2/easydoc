@@ -105,6 +105,18 @@ async function sha256File(filePath: string): Promise<string> {
   return hash.digest('hex')
 }
 
+function sameTransfer(left: TransferStartMessage, right: TransferStartMessage): boolean {
+  return (
+    left.transferId === right.transferId &&
+    left.destinationDeviceId === right.destinationDeviceId &&
+    left.name === right.name &&
+    left.size === right.size &&
+    left.mime === right.mime &&
+    left.sha256.toLowerCase() === right.sha256.toLowerCase() &&
+    left.chunkSize === right.chunkSize
+  )
+}
+
 export class IncomingTransfer {
   readonly rootDir: string
   readonly metadataPath: string
@@ -138,7 +150,8 @@ export class IncomingTransfer {
     const finalName = await collisionSafeName(rootDir, safeFilename(transfer.name))
     const metadataPath = path.join(rootDir, `.easydoc-${transfer.transferId}.json`)
     const partPath = path.join(rootDir, `${finalName}.part`)
-    if (await exists(metadataPath)) return IncomingTransfer.resume(transfer.transferId, rootDir)
+    if (await exists(metadataPath))
+      return IncomingTransfer.resume(transfer.transferId, rootDir, transfer)
 
     const handle = await open(partPath, 'wx+')
     const metadata: ReceiveMetadata = {
@@ -153,7 +166,11 @@ export class IncomingTransfer {
     return receiver
   }
 
-  static async resume(transferId: string, rootDir: string): Promise<IncomingTransfer> {
+  static async resume(
+    transferId: string,
+    rootDir: string,
+    expectedTransfer?: TransferStartMessage,
+  ): Promise<IncomingTransfer> {
     const metadataPath = path.join(rootDir, `.easydoc-${transferId}.json`)
     let metadata: ReceiveMetadata
     try {
@@ -163,6 +180,9 @@ export class IncomingTransfer {
     }
     if (metadata.version !== 1 || metadata.transfer.transferId !== transferId) {
       throw new Error('transfer_not_found')
+    }
+    if (expectedTransfer && !sameTransfer(metadata.transfer, expectedTransfer)) {
+      throw new Error('resume_state_mismatch')
     }
 
     const partPath = path.join(rootDir, `${metadata.finalName}.part`)
@@ -208,12 +228,20 @@ export class IncomingTransfer {
       throw new Error('transfer_size_exceeded')
     }
 
-    const result = await this.handle.write(payload, 0, payload.byteLength, this.metadata.bytesWritten)
+    const result = await this.handle.write(
+      payload,
+      0,
+      payload.byteLength,
+      this.metadata.bytesWritten,
+    )
     if (result.bytesWritten !== payload.byteLength) throw new Error('write_failed')
 
     this.metadata.bytesWritten += payload.byteLength
     this.metadata.nextChunk += 1
-    if (this.metadata.nextChunk % 8 === 0 || this.metadata.bytesWritten === this.metadata.transfer.size) {
+    if (
+      this.metadata.nextChunk % 8 === 0 ||
+      this.metadata.bytesWritten === this.metadata.transfer.size
+    ) {
       await this.handle.sync()
     }
     await this.persistMetadata()

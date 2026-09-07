@@ -9,6 +9,10 @@
   },
   "dependencies": {
     "@easydoc/crypto": "0.0.1",
-    "@easydoc/protocol": "0.0.1"
+    "@easydoc/protocol": "0.0.1",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

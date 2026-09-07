@@ -9,11 +9,7 @@ import type { TransferStartMessage } from '@easydoc/protocol'
 
 const TRANSFER_ID = '123e4567-e89b-42d3-a456-426614174000'
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
-const startFor = (
-  name: string,
-  bytes: Uint8Array,
-  chunkSize = 4,
-): TransferStartMessage => ({
+const startFor = (name: string, bytes: Uint8Array, chunkSize = 4): TransferStartMessage => ({
   type: 'transfer:start',
   transferId: TRANSFER_ID,
   destinationDeviceId: 'school-pc',
