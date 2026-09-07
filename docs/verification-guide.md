@@ -21,6 +21,7 @@ npm run verify
 - relay TypeScript checking
 - desktop React/Vite production build
 - Cloudflare Worker dry-run bundling
+- production dependency audit using the scoped, expiring exception policy
 
 The native Tauri/Rust binary is not part of this command because it requires a platform Rust toolchain and native build dependencies.
 
@@ -87,8 +88,52 @@ The mobile app uses native scanner/PDF modules, so use an Expo development/nativ
 Android:
 
 Use the remote Android build workflow to produce the APK, then download it to
-the laptop and install it on the phone attached to the laptop. The laptop is
-not used for a native Expo build.
+the laptop and install it on the phone attached to the laptop. Alternatively,
+with JDK 17 and Android SDK/NDK installed, build a standalone test APK locally:
+
+```powershell
+# From apps/mobile; set ANDROID_HOME to the installed Android SDK first.
+$env:CI = "1"
+$env:NODE_ENV = "production"
+npx expo prebuild --platform android --no-install
+Set-Location android
+.\gradlew.bat :app:assembleRelease "-PreactNativeArchitectures=arm64-v8a,x86_64" --init-script "../../../scripts/android-repositories.gradle" --max-workers=2 --console=plain
+```
+
+The Expo-generated release variant includes the JS bundle but uses the template
+debug signing key unless production signing is explicitly configured. Treat it
+as a **test APK**, not a Play Store production release. The output is
+`apps/mobile/android/app/build/outputs/apk/release/app-release.apk`.
+An existing installation signed with a different key cannot be upgraded in
+place; do not uninstall it without first protecting its local documents.
+
+On this Windows network, Java's default trust store rejects the Scanbot Maven
+certificate. Adding `"-Djavax.net.ssl.trustStoreType=Windows-ROOT"` and
+`"-Djavax.net.ssl.trustStore=NONE"` to the Gradle command uses Windows' existing
+trusted certificates for that process, without disabling TLS verification or
+changing machine/user-wide settings. The repository filter limits Scanbot Maven
+queries to `io.scanbot` instead of querying it for every AndroidX/Kotlin artifact.
+
+Set `EXPO_PUBLIC_SCANBOT_LICENSE_KEY` before bundling for licensed use. Without
+a key, Scanbot documents a 60-second evaluation per app session, including its
+camera UI. The APK can build without the key, but is not suitable for ongoing use.
+
+### Local test APK verified on September 7, 2026
+
+- `EasyDoc-0.2.1-v3-camera-test.apk`: package `app.easydoc.mobile`, version code 3,
+  Android API 24+, arm64-v8a and x86_64; 281,852,879 bytes.
+- Standalone JS bundle is embedded; Android debug certificate/v2 signature verified.
+- SHA-256: `39e3bccf60ef69c7b2e1948059bf9920181e662e329620c3a69acc27e473f78f`.
+- Copied to the user's designated OneDrive inbox without replacing existing files;
+  source and destination hashes match. Cloud synchronization completion was not
+  independently verified.
+- Gradle `assembleRelease` including vital lint passed. Android JS export and all
+  83 repository tests/type/build/audit checks passed. No phone was attached, so
+  physical-camera operation and end-to-end phone/PC presence are not claimed.
+- Scanbot key was unset: the 60-second per-session evaluation restriction applies.
+- A Luna worker independently checked SDK/Java/device/license readiness while the
+  primary agent fixed Windows credentials and integrated/verified both builds.
+  Luna was selected for the bounded environment check from the available pool.
 
 iOS is outside the current build workflow. No iOS device or OCR execution is
 claimed as tested here.

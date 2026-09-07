@@ -1,0 +1,11 @@
+// Local Android builds: the Scanbot Expo plugin prepends its repositories to
+// every project. Only ask those servers for their own artifacts, not every
+// AndroidX/Kotlin dependency (which causes redundant network requests).
+allprojects {
+    repositories.configureEach { repository ->
+        if (repository instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository
+            && repository.url.host == 'nexus.scanbot.io') {
+            repository.content { includeGroup('io.scanbot') }
+        }
+    }
+}

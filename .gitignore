@@ -7,5 +7,6 @@ target/
 .DS_Store
 apps/mobile/android/
 apps/mobile/ios/
+apps/mobile/modules/*/android/build/
 
 apps/desktop/src-tauri/gen/

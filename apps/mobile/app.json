@@ -4,7 +4,7 @@
     "slug": "easydoc",
     "icon": "../desktop/src-tauri/icons/ios/AppIcon-512@2x.png",
     "scheme": "easydoc",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "app.easydoc.mobile",
-      "versionCode": 2,
+      "versionCode": 3,
       "intentFilters": [
         {
           "action": "VIEW",
