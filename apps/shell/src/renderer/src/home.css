@@ -459,6 +459,122 @@ body.vib .home {
   color: var(--text-muted);
 }
 
+.easydoc-card:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.easydoc-phone-icon {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+}
+
+.easydoc-online-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.easydoc-modal {
+  width: min(500px, 90vw);
+}
+
+.easydoc-qr {
+  display: grid;
+  place-items: center;
+  width: fit-content;
+  margin: 22px auto 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.easydoc-manage-modal {
+  width: min(560px, 92vw);
+  max-width: 560px;
+}
+
+.easydoc-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.easydoc-device-row,
+.easydoc-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.easydoc-setting-row {
+  margin-top: 14px;
+}
+
+.easydoc-device-copy,
+.easydoc-setting-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.easydoc-device-copy strong,
+.easydoc-setting-copy strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.easydoc-device-copy span,
+.easydoc-setting-copy span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.easydoc-small-button {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.easydoc-auto-open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 14px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.easydoc-auto-open input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.easydoc-manage-actions {
+  justify-content: space-between;
+}
+
 .ai-chip {
   padding: 1px 6px;
   border-radius: 4px;

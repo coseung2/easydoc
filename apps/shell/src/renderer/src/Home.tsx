@@ -20,6 +20,7 @@ import { fileCountKey, visiblePageCount } from './counts'
 import { useI18n } from './locale'
 import type { I18n, StringKey } from './locale'
 import { SettingsModal } from './SettingsModal'
+import { EasyDocQuickCard } from './EasyDocQuickCard'
 
 declare global {
   interface Window {
@@ -1616,6 +1617,7 @@ export function Home() {
             <span className="quick-sub">{OPEN_LOCAL_EXTENSIONS}</span>
           </span>
         </button>
+        <EasyDocQuickCard />
       </div>
     )
   }
