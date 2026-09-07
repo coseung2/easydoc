@@ -23,12 +23,26 @@ test("invalidating pending work prevents stale results from repopulating the cac
   const cache = new BoundedAsyncCache<string>({ maxEntries: 2, maxWeight: 100 });
   let release!: (value: string) => void;
   const first = cache.getOrLoad("document", () => new Promise<string>((resolve) => { release = resolve; }));
+  await Promise.resolve();
   assert.equal(cache.invalidateWhere((key) => key === "document"), 0);
   const replacement = cache.getOrLoad("document", () => Promise.resolve("new"));
   release("old");
   assert.equal(await first, "old");
   assert.equal(await replacement, "new");
   assert.equal(cache.get("document"), "new");
+});
+
+test("synchronously throwing cache loaders are retryable and unrelated pending keys survive invalidation", async () => {
+  const cache = new BoundedAsyncCache<string>({ maxEntries: 4, maxWeight: 100 });
+  await assert.rejects(cache.getOrLoad("sync", () => { throw new Error("sync failure"); }), /sync failure/);
+  assert.equal(await cache.getOrLoad("sync", () => "recovered"), "recovered");
+  let release!: (value: string) => void;
+  const pending = cache.getOrLoad("other", () => new Promise<string>(resolve => { release = resolve; }));
+  await Promise.resolve();
+  cache.invalidateWhere(key => key === "sync");
+  release("keep");
+  await pending;
+  assert.equal(cache.get("other"), "keep");
 });
 
 test("page cache keys identity, revision, resolution and evicts least-recently-used pages", async () => {

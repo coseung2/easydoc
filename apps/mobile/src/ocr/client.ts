@@ -3,7 +3,7 @@ import { File, Directory, Paths } from "expo-file-system";
 import { importLocalFile } from "../documents/store";
 import type { RecognizedPage } from "./text";
 import { getPdfPageRasterizer } from "../pdf/rasterizer-backend.ts";
-import { getCachedRecognizedPages, getOrLoadRecognizedPages, type OcrDocument } from "./cache.ts";
+import { documentIdentity, documentRevision, getCachedRecognizedPages, getOrLoadRecognizedPages, type OcrDocument } from "./cache.ts";
 
 type OcrModule = { recognize(uri: string): Promise<string>; copyText(text: string): Promise<void> };
 const native = () => requireNativeModule<OcrModule>("EasyDocOcr");
@@ -39,8 +39,8 @@ export async function recognizeDocument(
           // OCR needs the full page; this resolution is intentionally distinct
           // from thumbnails so both can remain useful in the shared cache.
           quality: 1,
-          documentId: file.localId ?? file.id ?? file.uri,
-          revision: file.revision ?? file.updatedAt ?? file.size ?? file.uri,
+          documentId: documentIdentity(file),
+          revision: documentRevision(file),
         })
         : file.uri!;
       pages.push({ page: index + 1, text: await native().recognize(new File(imageUri).uri) });

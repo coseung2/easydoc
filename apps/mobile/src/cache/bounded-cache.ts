@@ -21,7 +21,6 @@ export class BoundedAsyncCache<T> {
   private readonly weightOf: (value: T) => number;
   private readonly onDelete?: (value: T, key: string) => void;
   private weight = 0;
-  private generation = 0;
 
   constructor(options: BoundedCacheOptions<T>) {
     this.options = options;
@@ -58,20 +57,14 @@ export class BoundedAsyncCache<T> {
     const existing = this.pending.get(key);
     if (existing) return existing;
 
-    const generation = this.generation;
-    let pending!: Promise<T>;
-    pending = (async () => {
-      try {
-        const value = await loader();
-        if (this.generation === generation) this.set(key, value, weight);
-        return value;
-      } catch (error) {
-        // Do not retain failed work: a later attempt should be able to retry.
-        throw error;
-      } finally {
-        if (this.pending.get(key) === pending) this.pending.delete(key);
-      }
-    })();
+    // Defer invocation until the pending entry is registered, including loaders
+    // that throw synchronously. Identity also isolates invalidation per key.
+    const pending = Promise.resolve().then(loader).then((value) => {
+      if (this.pending.get(key) === pending) this.set(key, value, weight);
+      return value;
+    }).finally(() => {
+      if (this.pending.get(key) === pending) this.pending.delete(key);
+    });
     this.pending.set(key, pending);
     return pending;
   }
@@ -87,22 +80,18 @@ export class BoundedAsyncCache<T> {
 
   invalidateWhere(predicate: (key: string) => boolean): number {
     let removed = 0;
-    let pendingMatched = false;
     for (const key of Array.from(this.entries.keys())) {
       if (predicate(key) && this.remove(key)) removed += 1;
     }
     for (const key of Array.from(this.pending.keys())) {
       if (predicate(key)) {
-        pendingMatched = true;
         this.pending.delete(key);
       }
     }
-    if (removed > 0 || pendingMatched) this.generation += 1;
     return removed;
   }
 
   clear(): void {
-    this.generation += 1;
     this.pending.clear();
     for (const key of Array.from(this.entries.keys())) this.remove(key);
   }

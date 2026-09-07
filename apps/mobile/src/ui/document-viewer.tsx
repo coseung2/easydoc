@@ -104,20 +104,23 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
   const renderThumbnailImage = useCallback((index: number) => renderRasterizedPage(index, 240, 0.72), [renderRasterizedPage]);
 
   const handleSend = useCallback(async () => {
-    if (!onSend || sendRunning.current || sendStatus === "queued") return;
+    if (!onSend || sendRunning.current) return;
+    const current = generation.current;
     sendRunning.current = true;
     setSendStatus("sending");
     setSendError("");
     try {
       await onSend();
-      setSendStatus("queued");
+      if (generation.current === current) setSendStatus("queued");
     } catch (cause) {
-      setSendStatus("error");
-      setSendError(cause instanceof Error ? cause.message : String(cause));
+      if (generation.current === current) {
+        setSendStatus("error");
+        setSendError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      sendRunning.current = false;
+      if (generation.current === current) sendRunning.current = false;
     }
-  }, [onSend, sendStatus]);
+  }, [onSend]);
 
   useEffect(() => {
     const uri = file?.uri;
@@ -192,7 +195,7 @@ export function DocumentViewerScreen({ file, onBack, onPresent, onSend, onOcr }:
     }
   };
 
-  const sendBusy = sendStatus === "sending" || sendStatus === "queued";
+  const sendBusy = sendStatus === "sending";
   return <View style={styles.root}>
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.titleRow}><Feather name="arrow-left" size={20} color={colors.text} /><View style={styles.titleBlock}><Text style={styles.title} numberOfLines={1}>{file.name}</Text><Text style={styles.meta}>{pageCount > 0 ? `${page} / ${pageCount}` : file.type}</Text></View></Pressable>
