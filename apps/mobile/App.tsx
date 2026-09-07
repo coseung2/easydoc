@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, BackHandler, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
@@ -14,9 +14,10 @@ import { DocumentViewerScreen, PresentationScreen } from "./src/ui/document-view
 import { PdfToolsScreen } from "./src/ui/pdf-tools-screen";
 import { OcrScreen } from "./src/ui/ocr-screen";
 import { APP_RELAY_BASE_URL, claimPairing, getPairingKey, getStoredPairing, getStoredPairings, removePairing as removeStoredPairing, revokeStoredPairing, selectPairing as selectStoredPairing, type StoredMobilePairing } from "./src/pairing/client";
-import { assignUnassignedTransfersTarget, enqueueTransfer, listPendingTransfers, releaseTransfersTarget, updateTransferStatus } from "./src/transfer/queue";
+import { assignUnassignedTransfersTarget, cancelTransfer as cancelQueuedTransfer, enqueueTransfer, listPendingTransfers, releaseTransfersTarget, updateTransferStatus } from "./src/transfer/queue";
 import { MobileRelayClient, type RelayState } from "./src/transfer/client";
 import { groupTransfersByTarget } from "./src/transfer/targets";
+import { publishTransferProgress, useTransferProgress } from "./src/transfer/progress-store";
 import { pairingPayloadFromUrl } from "../../packages/protocol/src/index.ts";
 
 type Route = TabKey | "viewer" | "presentation" | "ocr";
@@ -24,15 +25,13 @@ type RecentFile = { name: string; meta: string; type: string; uri?: string; mime
 type MobilePairingForUi = StoredMobilePairing & { alias?: string; desktopName?: string };
 type FolderFilter = string | null | undefined;
 
-const EMPTY_RELAY_STATE: RelayState = { connected: false, desktopOnline: false };
-
 function toRecentFile(document: LocalDocument): RecentFile {
   const extension = document.title.split(".").pop()?.toUpperCase() ?? "FILE";
   return { name: document.title, meta: `${document.pageCount > 0 ? `${document.pageCount} pages · ` : ""}${(document.size / 1024 / 1024).toFixed(1)} MB`, type: extension.slice(0, 4), uri: document.uri, mime: document.mimeType, localId: document.id, folderId: document.folderId };
 }
 
-function desktopName(pairing: MobilePairingForUi): string {
-  return pairing.alias?.trim() || pairing.desktopAlias?.trim() || pairing.desktopName?.trim() || pairing.desktopId;
+function desktopName(pairing: MobilePairingForUi, liveAlias?: string): string {
+  return liveAlias?.trim() || pairing.alias?.trim() || pairing.desktopAlias?.trim() || pairing.desktopName?.trim() || pairing.desktopId;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -72,10 +71,11 @@ export default function App() {
   const relayClients = useRef<Map<string, MobileRelayClient>>(new Map());
   const connectionGeneration = useRef(0);
   const flushingTargets = useRef(new Set<string>());
+  const removingPairings = useRef(new Set<string>());
   const pairingClaims = useRef(new Set<string>());
   const handledPairingPayloads = useRef(new Set<string>());
   const selectedPairingKey = selectedPairing ? getPairingKey(selectedPairing) : "";
-  const relayState = relayStates[selectedPairingKey] ?? EMPTY_RELAY_STATE;
+  const liveAliases = Object.fromEntries(Object.entries(relayStates).filter(([, state]) => state.desktopAlias).map(([key, state]) => [key, state.desktopAlias!]));
   const activeTab: TabKey = route === "viewer" || route === "presentation" ? "documents" : route === "ocr" ? (ocrReturnRoute === "tools" ? "tools" : "documents") : route;
 
   const addLocalDocument = useCallback((document: LocalDocument) => {
@@ -108,11 +108,14 @@ export default function App() {
   }, []);
 
   const disconnectRelayClients = () => {
-    for (const client of relayClients.current.values()) client.disconnect();
+    for (const [key, client] of relayClients.current.entries()) {
+      publishTransferProgress(key, undefined);
+      client.disconnect();
+    }
     relayClients.current.clear();
   };
 
-  const flushQueue = async () => {
+  const flushQueue = async (notifyFailure = false) => {
     let pending: Awaited<ReturnType<typeof listPendingTransfers>>;
     try { pending = await refreshQueueState(); }
     catch (error) { setTransferError(errorMessage(error, "전송 목록을 불러오지 못했습니다.")); return; }
@@ -125,13 +128,16 @@ export default function App() {
         for (const item of items) {
           if (!client.snapshot().connected || !client.snapshot().desktopOnline) break;
           try {
-            await updateTransferStatus(item.id, "transferring");
+            await updateTransferStatus(item.id, "preparing");
             await client.sendFile({ uri: item.uri, name: item.name, mime: item.mime, transferId: item.id });
             await updateTransferStatus(item.id, "completed");
             setTransferError("");
           } catch (error) {
-            await updateTransferStatus(item.id, "failed", error instanceof Error ? error.message : "transfer_failed");
-            setTransferError(errorMessage(error, `${item.name} 전송에 실패했습니다.`));
+            const code = error instanceof Error ? error.message : "transfer_failed";
+            await updateTransferStatus(item.id, code === "transfer_cancelled" ? "cancelled" : "failed", code);
+            const message = errorMessage(error, `${item.name} 전송에 실패했습니다.`);
+            setTransferError(message);
+            if (notifyFailure && code !== "transfer_cancelled") Alert.alert("전송 실패", message);
             break;
           }
         }
@@ -142,28 +148,36 @@ export default function App() {
 
   const enqueueForTarget = async (file: RecentFile, target: StoredMobilePairing) => {
     if (!file.uri) throw new Error("전송할 저장 파일이 없습니다.");
-    await enqueueTransfer({ uri: file.uri, name: file.name, mime: file.mime ?? "application/octet-stream", target: { roomId: target.roomId, desktopId: target.desktopId } });
-    try { await refreshQueueState(); await flushQueue(); }
-    catch (error) { setTransferError(errorMessage(error, "파일은 전송 목록에 추가했지만 상태를 갱신하지 못했습니다.")); }
+    const queued = await enqueueTransfer({ uri: file.uri, name: file.name, mime: file.mime ?? "application/octet-stream", target: { roomId: target.roomId, desktopId: target.desktopId } });
+    // Local queue persistence is the completion point for a save. Refresh and
+    // relay delivery are deliberately detached so scanning never waits for a
+    // large upload or an offline PC.
+    void refreshQueueState().catch((error) => setTransferError(errorMessage(error, "파일은 전송 목록에 추가했지만 상태를 갱신하지 못했습니다.")));
+    void flushQueue(true).catch((error) => setTransferError(errorMessage(error, "파일은 전송 목록에 추가했지만 전송을 시작하지 못했습니다.")));
+    return queued;
   };
 
   const queueFileStrict = async (file: RecentFile) => {
     if (!file.uri) throw new Error("전송할 저장 파일이 없습니다.");
     const target = selectedPairing;
     if (!target) throw new Error(pairings.length ? "설정에서 파일을 보낼 PC를 선택해 주세요." : "PC 앱의 QR 코드를 휴대폰 기본 카메라로 촬영해 연결해 주세요.");
-    try { await enqueueForTarget(file, target); }
+    try { return await enqueueForTarget(file, target); }
     catch (error) { throw new Error(errorMessage(error, "파일을 전송 목록에 추가하지 못했습니다.")); }
   };
 
   const queueFile = async (file: RecentFile) => {
-    try { await queueFileStrict(file); }
+    try {
+      const queued = await queueFileStrict(file);
+      Alert.alert(queued?.deduplicated ? "이미 전송 대기 중" : "전송 대기", queued?.deduplicated ? `${file.name}은 이미 이 PC로 전송 대기 중입니다.` : `${file.name}을 전송 대기 목록에 추가했습니다.`);
+    }
     catch (error) {
       const message = errorMessage(error, "파일을 전송 목록에 추가하지 못했습니다.");
       setTransferError(message);
       if (!selectedPairing) {
         Alert.alert("보낼 PC 선택", message);
         setRoute("settings");
-      }
+      } else Alert.alert("전송 실패", message);
+      throw error;
     }
   };
 
@@ -232,7 +246,15 @@ export default function App() {
       const key = getPairingKey(target);
       clients.set(key, new MobileRelayClient(APP_RELAY_BASE_URL, target, (state) => {
         if (cancelled || connectionGeneration.current !== generation) return;
-        setRelayStates((current) => ({ ...current, [key]: state }));
+        // Keep high-frequency transfer progress out of App's render tree. The
+        // banner subscribes to the external progress store independently.
+        publishTransferProgress(key, state.transfer);
+        const connectionState: RelayState = { connected: state.connected, desktopOnline: state.desktopOnline, desktopAlias: state.desktopAlias };
+        setRelayStates((current) => {
+          const previous = current[key];
+          if (previous?.connected === connectionState.connected && previous?.desktopOnline === connectionState.desktopOnline && previous?.desktopAlias === connectionState.desktopAlias) return current;
+          return { ...current, [key]: connectionState };
+        });
         setOnlineByPairing((current) => current[key] === state.desktopOnline ? current : { ...current, [key]: state.desktopOnline });
         if (state.connected) setConnectionErrors((current) => { if (!current[key]) return current; const next = { ...current }; delete next[key]; return next; });
       }));
@@ -276,11 +298,26 @@ export default function App() {
   }, [ocrReturnRoute, presentationReturnRoute, route]);
 
   const selectPc = async (target: StoredMobilePairing) => {
-    try { const selected = await selectStoredPairing(target); if (selected) setSelectedPairing(selected); setPairingActionError(""); }
-    catch (error) { setPairingActionError(errorMessage(error, "기본 PC를 변경하지 못했습니다.")); }
+    const previous = selectedPairing;
+    // The selected card changes immediately; persistence is the confirmation
+    // point and failures restore the previous choice.
+    setSelectedPairing(target);
+    try {
+      const selected = await selectStoredPairing(target);
+      if (!selected) throw new Error("pairing_not_found");
+      setSelectedPairing(selected);
+      setPairingActionError("");
+    } catch (error) {
+      setSelectedPairing(previous);
+      setPairingActionError(errorMessage(error, "기본 PC를 변경하지 못했습니다."));
+    }
   };
 
   const removePc = async (target: StoredMobilePairing) => {
+    const key = getPairingKey(target);
+    if (removingPairings.current.has(key)) return;
+    removingPairings.current.add(key);
+    setPairingActionError("연결 해제 중…");
     let result: Awaited<ReturnType<typeof revokeStoredPairing>>;
     try {
       result = await revokeStoredPairing(APP_RELAY_BASE_URL, target);
@@ -288,6 +325,7 @@ export default function App() {
       const message = errorMessage(error, "PC 연결을 해제하지 못했습니다.");
       setPairingActionError(message);
       Alert.alert("연결 해제 실패", `${message}\n\n서버 권한을 확인하지 못해 로컬 연결을 유지했습니다.`, [{ text: "취소", style: "cancel" }, { text: "다시 시도", onPress: () => { void removePc(target); } }]);
+      removingPairings.current.delete(key);
       return;
     }
     try {
@@ -305,6 +343,9 @@ export default function App() {
       const message = errorMessage(error, "이 기기의 PC 연결 정보를 삭제하지 못했습니다.");
       setPairingActionError(message);
       Alert.alert("로컬 연결 정리 실패", `서버 연결은 해제했지만 ${message}`, [{ text: "확인" }, { text: "다시 시도", onPress: () => { void removePc(target); } }]);
+    } finally {
+      removingPairings.current.delete(key);
+      setPairingActionError((current) => current === "연결 해제 중…" ? "" : current);
     }
   };
 
@@ -341,8 +382,14 @@ export default function App() {
 
   const moveDocument = async (file: RecentFile, folderId: string | null) => {
     if (!file.localId) return;
-    try { await moveLocalDocument(file.localId, folderId); setImportedFiles((current) => current.map((item) => item.localId === file.localId ? { ...item, folderId } : item)); setDocumentError(""); }
-    catch (error) { setDocumentError(errorMessage(error, "문서를 폴더로 옮기지 못했습니다.")); throw error; }
+    const previousFolderId = file.folderId;
+    setImportedFiles((current) => current.map((item) => item.localId === file.localId ? { ...item, folderId } : item));
+    try { await moveLocalDocument(file.localId, folderId); setDocumentError(""); }
+    catch (error) {
+      setImportedFiles((current) => current.map((item) => item.localId === file.localId ? { ...item, folderId: previousFolderId } : item));
+      setDocumentError(errorMessage(error, "문서를 폴더로 옮기지 못했습니다."));
+      throw error;
+    }
   };
 
   const assignLegacyTransfers = () => {
@@ -351,18 +398,32 @@ export default function App() {
     Alert.alert("대기 파일 대상 지정", `대상이 기록되지 않은 ${unassignedCount}개 파일을 '${desktopName(target)}'로 보낼까요?`, [{ text: "취소", style: "cancel" }, { text: "이 PC로 지정", onPress: () => { void (async () => { try { await assignUnassignedTransfersTarget(target); await flushQueue(); } catch (error) { setTransferError(errorMessage(error, "대기 파일의 PC를 지정하지 못했습니다.")); } })(); } }]);
   };
 
+  const cancelVisibleTransfer = async () => {
+    try {
+      const pending = await listPendingTransfers();
+      const selected = pending.find((item) => {
+        if (selectedPairing && (!item.target || item.target.roomId !== selectedPairing.roomId || item.target.desktopId !== selectedPairing.desktopId)) return false;
+        return item.status === "preparing" || item.status === "transferring" || item.status === "retrying" || item.status === "waiting" || item.status === "failed";
+      });
+      if (!selected) return;
+      if (selected.target) relayClients.current.get(getPairingKey(selected.target))?.cancelActiveTransfer(selected.id);
+      await cancelQueuedTransfer(selected.id);
+      await refreshQueueState();
+    } catch (error) { setTransferError(errorMessage(error, "전송을 취소하지 못했습니다.")); }
+  };
+
   const focusDocumentSearch = () => { setRoute("documents"); setSearchRequest((value) => value + 1); };
 
   return <SafeAreaProvider><SafeAreaView style={styles.safe} edges={["top", "right", "bottom", "left"]}>
     <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-    {route === "home" && <Home recent={importedFiles.slice(0, 3)} pairings={pairings} selectedPairing={selectedPairing} onlineByPairing={onlineByPairing} error={initializationError} onRetry={loadPairings} onSelectPc={selectPc} onScan={() => setRoute("scan")} onOpen={openFile} onOpenRecent={(file) => { setSelectedFile(file); setRoute("viewer"); }} onSearch={focusDocumentSearch} onDocuments={() => setRoute("documents")} onPresentation={openPresentation} onOcr={() => openOcr("home")} onTools={() => setRoute("tools")} onPair={() => Alert.alert("PC 연결", "PC 앱의 QR 코드를 휴대폰 기본 카메라로 촬영해 주세요.")} />}
-    {route === "documents" && <Documents imported={importedFiles} folders={folders} folderFilter={folderFilter} query={query} filter={documentFilter} grid={documentGrid} error={documentError || shareIntentError || ""} transferError={transferError} pendingCount={pendingCount} unassignedCount={unassignedCount} transfer={relayState.transfer} searchRequest={searchRequest} onQueryChange={setQuery} onFilterChange={setDocumentFilter} onFolderFilterChange={setFolderFilter} onGridChange={setDocumentGrid} onSend={queueFile} onOpen={(file) => { setSelectedFile(file); setRoute("viewer"); }} onImport={openFile} onCreateFolder={createFolder} onMove={moveDocument} onRetry={loadDocuments} onRetryTransfer={() => { void flushQueue(); }} onAssignUnassigned={assignLegacyTransfers} />}
+    {route === "home" && <Home recent={importedFiles.slice(0, 3)} pairings={pairings} selectedPairing={selectedPairing} liveAliases={liveAliases} onlineByPairing={onlineByPairing} error={initializationError} onRetry={loadPairings} onSelectPc={selectPc} onScan={() => setRoute("scan")} onOpen={openFile} onOpenRecent={(file) => { setSelectedFile(file); setRoute("viewer"); }} onSearch={focusDocumentSearch} onDocuments={() => setRoute("documents")} onPresentation={openPresentation} onOcr={() => openOcr("home")} onTools={() => setRoute("tools")} onPair={() => Alert.alert("PC 연결", "PC 앱의 QR 코드를 휴대폰 기본 카메라로 촬영해 주세요.")} />}
+    {route === "documents" && <Documents imported={importedFiles} folders={folders} folderFilter={folderFilter} query={query} filter={documentFilter} grid={documentGrid} error={documentError || shareIntentError || ""} transferError={transferError} pendingCount={pendingCount} unassignedCount={unassignedCount} selectedPairingKey={selectedPairingKey} onCancelTransfer={cancelVisibleTransfer} searchRequest={searchRequest} onQueryChange={setQuery} onFilterChange={setDocumentFilter} onFolderFilterChange={setFolderFilter} onGridChange={setDocumentGrid} onSend={queueFile} onOpen={(file) => { setSelectedFile(file); setRoute("viewer"); }} onImport={openFile} onCreateFolder={createFolder} onMove={moveDocument} onRetry={loadDocuments} onRetryTransfer={() => { void flushQueue(); }} onAssignUnassigned={assignLegacyTransfers} />}
     {route === "scan" && <ScannerScreen onClose={() => setRoute("home")} onSaved={async (document) => { addLocalDocument(document); const target = selectedPairing; if (target) { try { await enqueueForTarget(toRecentFile(document), target); } catch (error) { setTransferError(errorMessage(error, "스캔은 저장했지만 PC 전송 목록에 추가하지 못했습니다.")); } } }} onFinished={() => setRoute("documents")} />}
     {route === "tools" && <PdfToolsScreen onSaved={addLocalDocument} onOcr={() => openOcr("tools")} />}
     {route === "settings" && <SettingsScreen pairings={pairings} selectedPairing={selectedPairing} onlineByPairing={onlineByPairing} connectionErrors={connectionErrors} actionError={initializationError || pairingActionError} onPair={() => Alert.alert("PC 연결", "PC 앱의 QR 코드를 휴대폰 기본 카메라로 촬영해 주세요.")} onSelectPairing={selectPc} onRemovePairing={removePc} onRetryConnections={() => { void loadPairings(); setConnectionRetry((value) => value + 1); }} />}
     {route === "viewer" && <DocumentViewerScreen file={selectedFile} onBack={() => setRoute("documents")} onPresent={() => { setPresentationReturnRoute("viewer"); setRoute("presentation"); }} onOcr={() => openOcr("viewer", selectedFile)} onSend={selectedFile?.uri ? () => queueFile(selectedFile) : undefined} />}
     {route === "presentation" && <PresentationScreen file={selectedFile} onBack={() => setRoute(presentationReturnRoute)} />}
-    {route === "ocr" && <OcrScreen file={selectedFile} onBack={() => setRoute(ocrReturnRoute)} onSaved={addLocalDocument} onSend={(document) => queueFileStrict(toRecentFile(document))} />}
+    {route === "ocr" && <OcrScreen file={selectedFile} onBack={() => setRoute(ocrReturnRoute)} onSaved={addLocalDocument} onSend={async (document) => { await queueFileStrict(toRecentFile(document)); }} />}
     {route !== "viewer" && route !== "presentation" && route !== "scan" && route !== "ocr" && <BottomNav active={activeTab} onChange={setRoute} />}
   </SafeAreaView></SafeAreaProvider>;
 }
@@ -371,7 +432,7 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry: () => voi
   return <View style={styles.errorBanner}><Text style={styles.errorBannerText}>{message}</Text><Pressable style={styles.retryButton} onPress={() => void onRetry()} accessibilityRole="button"><Text style={styles.retryButtonText}>다시 시도</Text></Pressable></View>;
 }
 
-function Home({ recent, pairings, selectedPairing, onlineByPairing, error, onRetry, onSelectPc, onScan, onOpen, onOpenRecent, onSearch, onDocuments, onPresentation, onOcr, onTools, onPair }: { recent: RecentFile[]; pairings: MobilePairingForUi[]; selectedPairing: MobilePairingForUi | null; onlineByPairing: Readonly<Record<string, boolean>>; error: string; onRetry: () => void | Promise<void>; onSelectPc: (pairing: StoredMobilePairing) => void | Promise<void>; onScan: () => void; onOpen: () => void; onOpenRecent: (file: RecentFile) => void; onSearch: () => void; onDocuments: () => void; onPresentation: () => void; onOcr: () => void; onTools: () => void; onPair: () => void }) {
+function Home({ recent, pairings, selectedPairing, liveAliases, onlineByPairing, error, onRetry, onSelectPc, onScan, onOpen, onOpenRecent, onSearch, onDocuments, onPresentation, onOcr, onTools, onPair }: { recent: RecentFile[]; pairings: MobilePairingForUi[]; selectedPairing: MobilePairingForUi | null; liveAliases: Readonly<Record<string, string>>; onlineByPairing: Readonly<Record<string, boolean>>; error: string; onRetry: () => void | Promise<void>; onSelectPc: (pairing: StoredMobilePairing) => void | Promise<void>; onScan: () => void; onOpen: () => void; onOpenRecent: (file: RecentFile) => void; onSearch: () => void; onDocuments: () => void; onPresentation: () => void; onOcr: () => void; onTools: () => void; onPair: () => void }) {
   const selectedKey = selectedPairing ? getPairingKey(selectedPairing) : "";
   return <ScrollView style={sharedStyles.content} contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
     <ScreenHeader title="문서" right={<IconButton icon="search" accessibilityLabel="문서 검색" onPress={onSearch} />} />
@@ -381,20 +442,22 @@ function Home({ recent, pairings, selectedPairing, onlineByPairing, error, onRet
     <View style={styles.sectionHeader}><Text style={sharedStyles.sectionTitle}>최근 문서</Text><Pressable style={styles.linkButton} onPress={onDocuments} accessibilityRole="button"><Text style={styles.link}>전체 보기</Text></Pressable></View>
     <View style={styles.listCard}>{recent.length > 0 ? recent.map((file) => <FileRow key={file.localId ?? file.name} file={file} onPress={() => onOpenRecent(file)} />) : <Text style={styles.emptyText}>아직 저장된 문서가 없습니다.</Text>}</View>
     <View style={styles.pcCard}><View style={styles.pcCardHeader}><View style={styles.pcCardTitleBlock}><Text style={styles.pcTitle}>PC로 바로 보내기</Text><Text style={styles.pcMeta}>선택한 PC로 새 스캔을 전송합니다.</Text></View><Feather name="monitor" size={22} color={colors.primary} /></View>
-      {pairings.length > 0 ? <>{pairings.map((pairing) => { const key = getPairingKey(pairing); const selected = key === selectedKey; const online = onlineByPairing[key]; const status = online === undefined ? "연결 대기" : online ? "온라인" : "오프라인"; const statusColor = online === undefined ? colors.textMuted : online ? colors.success : colors.danger; return <Pressable key={key} onPress={() => onSelectPc(pairing)} style={[styles.connectedPc, selected && styles.connectedPcSelected]} accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={`${desktopName(pairing)}, ${status}${selected ? ", 선택됨" : ""}`}><View style={styles.pcIdentity}><View style={styles.pcStatusIcon}><Feather name="monitor" size={17} color={colors.primary} /></View><View style={styles.pcIdentityText}><Text style={styles.pcName} numberOfLines={1}>{desktopName(pairing)}</Text><Text style={styles.pcId} numberOfLines={1}>{pairing.desktopAlias ? pairing.desktopId : "페어링된 데스크톱"}</Text></View></View><View style={styles.status}><View style={[styles.statusDot, { backgroundColor: statusColor }]} /><Text style={[styles.statusText, { color: statusColor }]}>{status}</Text></View></Pressable>; })}<Pressable style={styles.addPcButton} onPress={onPair} accessibilityRole="button"><Feather name="plus" size={15} color={colors.primary} /><Text style={styles.pairButtonText}>PC 연결 추가</Text></Pressable></> : <View style={styles.unpairedPc}><Text style={styles.unpairedText}>연결된 PC가 없습니다.</Text><Pressable accessibilityRole="button" onPress={onPair} style={styles.pairButton}><Text style={styles.pairButtonText}>PC 연결</Text><Feather name="arrow-right" size={14} color={colors.primary} /></Pressable></View>}
+      {pairings.length > 0 ? <>{pairings.map((pairing) => { const key = getPairingKey(pairing); const selected = key === selectedKey; const online = onlineByPairing[key]; const status = online === undefined ? "연결 대기" : online ? "온라인" : "오프라인"; const statusColor = online === undefined ? colors.textMuted : online ? colors.success : colors.danger; const name = desktopName(pairing, liveAliases[key]); return <Pressable key={key} onPress={() => onSelectPc(pairing)} style={[styles.connectedPc, selected && styles.connectedPcSelected]} accessibilityRole="button" accessibilityState={{ selected }} accessibilityLabel={`${name}, ${status}${selected ? ", 선택됨" : ""}`}><View style={styles.pcIdentity}><View style={styles.pcStatusIcon}><Feather name="monitor" size={17} color={colors.primary} /></View><View style={styles.pcIdentityText}><Text style={styles.pcName} numberOfLines={1}>{name}</Text><Text style={styles.pcId} numberOfLines={1}>{pairing.desktopAlias ? pairing.desktopId : "페어링된 데스크톱"}</Text></View></View><View style={styles.status}><View style={[styles.statusDot, { backgroundColor: statusColor }]} /><Text style={[styles.statusText, { color: statusColor }]}>{status}</Text></View></Pressable>; })}<Pressable style={styles.addPcButton} onPress={onPair} accessibilityRole="button"><Feather name="plus" size={15} color={colors.primary} /><Text style={styles.pairButtonText}>PC 연결 추가</Text></Pressable></> : <View style={styles.unpairedPc}><Text style={styles.unpairedText}>연결된 PC가 없습니다.</Text><Pressable accessibilityRole="button" onPress={onPair} style={styles.pairButton}><Text style={styles.pairButtonText}>PC 연결</Text><Feather name="arrow-right" size={14} color={colors.primary} /></Pressable></View>}
     </View>
   </ScrollView>;
 }
 
-function Documents({ imported, folders, folderFilter, query, filter, grid, error, transferError, pendingCount, unassignedCount, transfer, searchRequest, onQueryChange, onFilterChange, onFolderFilterChange, onGridChange, onSend, onOpen, onImport, onCreateFolder, onMove, onRetry, onRetryTransfer, onAssignUnassigned }: { imported: RecentFile[]; folders: LocalFolder[]; folderFilter: FolderFilter; query: string; filter: DocumentFilter; grid: boolean; error: string; transferError: string; pendingCount: number; unassignedCount: number; transfer?: RelayState["transfer"]; searchRequest: number; onQueryChange: (value: string) => void; onFilterChange: (value: DocumentFilter) => void; onFolderFilterChange: (value: FolderFilter) => void; onGridChange: (value: boolean) => void; onSend: (file: RecentFile) => void | Promise<void>; onOpen: (file: RecentFile) => void; onImport: () => void; onCreateFolder: (name: string) => Promise<void>; onMove: (file: RecentFile, folderId: string | null) => Promise<void>; onRetry: () => void | Promise<void>; onRetryTransfer: () => void; onAssignUnassigned: () => void }) {
+function Documents({ imported, folders, folderFilter, query, filter, grid, error, transferError, pendingCount, unassignedCount, selectedPairingKey, onCancelTransfer, searchRequest, onQueryChange, onFilterChange, onFolderFilterChange, onGridChange, onSend, onOpen, onImport, onCreateFolder, onMove, onRetry, onRetryTransfer, onAssignUnassigned }: { imported: RecentFile[]; folders: LocalFolder[]; folderFilter: FolderFilter; query: string; filter: DocumentFilter; grid: boolean; error: string; transferError: string; pendingCount: number; unassignedCount: number; selectedPairingKey: string; onCancelTransfer: () => void | Promise<void>; searchRequest: number; onQueryChange: (value: string) => void; onFilterChange: (value: DocumentFilter) => void; onFolderFilterChange: (value: FolderFilter) => void; onGridChange: (value: boolean) => void; onSend: (file: RecentFile) => void | Promise<void>; onOpen: (file: RecentFile) => void; onImport: () => void; onCreateFolder: (name: string) => Promise<void>; onMove: (file: RecentFile, folderId: string | null) => Promise<void>; onRetry: () => void | Promise<void>; onRetryTransfer: () => void; onAssignUnassigned: () => void }) {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [movingFile, setMovingFile] = useState<RecentFile | null>(null);
   const searchInput = useRef<TextInput>(null);
   useEffect(() => { if (searchRequest > 0) searchInput.current?.focus(); }, [searchRequest]);
-  const documents = imported.filter((file): file is RecentFile & { localId: string } => Boolean(file.localId));
-  const filteredIds = new Set(filterLocalDocuments(documents.map((file) => ({ id: file.localId, title: file.name, uri: file.uri ?? "", pageCount: 0, size: 0, mimeType: file.mime ?? "", createdAt: 0, folderId: file.folderId })), query, filter, folderFilter).map((document) => document.id));
-  const filtered = documents.filter((file) => filteredIds.has(file.localId));
+  const documents = useMemo(() => imported.filter((file): file is RecentFile & { localId: string } => Boolean(file.localId)), [imported]);
+  const filtered = useMemo(() => {
+    const filteredIds = new Set(filterLocalDocuments(documents.map((file) => ({ id: file.localId, title: file.name, uri: file.uri ?? "", pageCount: 0, size: 0, mimeType: file.mime ?? "", createdAt: 0, folderId: file.folderId })), query, filter, folderFilter).map((document) => document.id));
+    return documents.filter((file) => filteredIds.has(file.localId));
+  }, [documents, filter, folderFilter, query]);
   const create = async () => { try { await onCreateFolder(folderName); setFolderName(""); setCreatingFolder(false); } catch { /* Keep the name so the user can correct it. */ } };
   const finishMove = async (folderId: string | null) => { if (!movingFile) return; try { await onMove(movingFile, folderId); setMovingFile(null); } catch { /* The error banner provides retry context. */ } };
   return <View style={sharedStyles.content}>
@@ -406,13 +469,24 @@ function Documents({ imported, folders, folderFilter, query, filter, grid, error
     {movingFile && <View style={styles.movePanel}><View style={styles.moveHeader}><Text style={styles.moveTitle} numberOfLines={1}>'{movingFile.name}' 이동</Text><Pressable style={styles.compactIconButton} onPress={() => setMovingFile(null)} accessibilityRole="button" accessibilityLabel="폴더 이동 취소"><Feather name="x" size={18} color={colors.textMuted} /></Pressable></View><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipContent}><Chip label="미분류" active={movingFile.folderId === null} onPress={() => void finishMove(null)} />{folders.map((folder) => <Chip key={folder.id} label={folder.name} active={movingFile.folderId === folder.id} onPress={() => void finishMove(folder.id)} />)}</ScrollView></View>}
     {error && <ErrorBanner message={error} onRetry={onRetry} />}
     {transferError && <ErrorBanner message={transferError} onRetry={onRetryTransfer} />}
-    {(pendingCount > 0 || transfer) && <View style={styles.transferBanner}><Feather name="upload-cloud" size={16} color={colors.primary} /><View style={styles.transferText}><Text style={styles.transferTitle}>{transfer ? `${transfer.filename} 전송 중` : `${pendingCount}개 전송 대기`}</Text><Text style={styles.transferMeta}>{transfer ? `${Math.round((transfer.acknowledgedBytes / Math.max(1, transfer.sentBytes)) * 100)}% 확인됨` : "지정된 PC가 온라인이 되면 자동으로 전송합니다."}</Text></View>{unassignedCount > 0 && <Pressable style={styles.assignButton} onPress={onAssignUnassigned} accessibilityRole="button"><Text style={styles.assignButtonText}>대상 선택</Text></Pressable>}</View>}
+    <TransferBanner selectedPairingKey={selectedPairingKey} pendingCount={pendingCount} unassignedCount={unassignedCount} onCancelTransfer={onCancelTransfer} onAssignUnassigned={onAssignUnassigned} />
     <ScrollView style={styles.documentList} contentContainerStyle={grid ? styles.documentGrid : undefined} showsVerticalScrollIndicator={false}>{filtered.length > 0 ? filtered.map((file) => grid ? <FileTile key={file.localId} file={file} onPress={() => onOpen(file)} onSend={file.uri ? () => onSend(file) : undefined} onMove={() => setMovingFile(file)} /> : <FileRow key={file.localId} file={file} onPress={() => onOpen(file)} onSend={file.uri ? () => onSend(file) : undefined} onMove={() => setMovingFile(file)} large />) : <Text style={styles.emptyText}>{documents.length === 0 ? "가져오거나 스캔한 문서가 여기에 표시됩니다." : "조건에 맞는 문서가 없습니다."}</Text>}</ScrollView>
     <View style={styles.fileActions}><Pressable style={styles.smallButton} onPress={() => setCreatingFolder(true)} accessibilityRole="button"><Feather name="plus" size={16} /><Text style={styles.smallButtonText}>새 폴더</Text></Pressable><Pressable style={styles.smallButton} onPress={onImport} accessibilityRole="button"><Feather name="upload" size={16} /><Text style={styles.smallButtonText}>가져오기</Text></Pressable></View>
   </View>;
 }
 
-function stopAndRun(event: GestureResponderEvent, action?: () => void | Promise<void>) { event.stopPropagation(); if (action) void action(); }
+function stopAndRun(event: GestureResponderEvent, action?: () => void | Promise<void>) {
+  event.stopPropagation();
+  if (!action) return;
+  const result = action();
+  void Promise.resolve(result).catch(() => undefined);
+}
+
+function TransferBanner({ selectedPairingKey, pendingCount, unassignedCount, onCancelTransfer, onAssignUnassigned }: { selectedPairingKey: string; pendingCount: number; unassignedCount: number; onCancelTransfer: () => void | Promise<void>; onAssignUnassigned: () => void }) {
+  const transfer = useTransferProgress(selectedPairingKey);
+  if (pendingCount === 0 && !transfer) return null;
+  return <View style={styles.transferBanner}><Feather name="upload-cloud" size={16} color={colors.primary} /><View style={styles.transferText}><Text style={styles.transferTitle}>{transfer ? (transfer.status === "preparing" ? `${transfer.filename} 준비 중` : transfer.status === "retrying" ? `${transfer.filename} 재시도 중` : `${transfer.filename} 전송 중`) : `${pendingCount}개 전송 대기`}</Text><Text style={styles.transferMeta}>{transfer ? `${Math.round((transfer.acknowledgedBytes / Math.max(1, transfer.sentBytes)) * 100)}% 확인됨` : "지정된 PC가 온라인이 되면 자동으로 전송합니다."}</Text></View>{unassignedCount > 0 && <Pressable style={styles.assignButton} onPress={onAssignUnassigned} accessibilityRole="button"><Text style={styles.assignButtonText}>대상 선택</Text></Pressable>}<Pressable style={styles.cancelTransferButton} onPress={() => void onCancelTransfer()} accessibilityRole="button" accessibilityLabel="전송 취소"><Text style={styles.cancelTransferText}>취소</Text></Pressable></View>;
+}
 
 function FileRow({ file, onPress, onSend, onMove, large = false }: { file: RecentFile; onPress?: () => void; onSend?: () => void | Promise<void>; onMove?: () => void; large?: boolean }) {
   return <Pressable style={[styles.fileRow, large && styles.fileRowLarge]} onPress={onPress} accessibilityRole="button" accessibilityLabel={`${file.name} 열기`}><View style={styles.fileLeft}><View style={[styles.fileIcon, large && styles.fileIconLarge]}><Feather name="file" size={18} color={colors.primary} /></View><View style={styles.fileText}><Text style={styles.fileName} numberOfLines={1}>{file.name}</Text><Text style={styles.fileMeta}>{file.meta}</Text></View></View><View style={styles.fileRight}>{onMove && <Pressable style={styles.fileIconButton} onPress={(event) => stopAndRun(event, onMove)} accessibilityRole="button" accessibilityLabel={`${file.name} 폴더 이동`}><Feather name="folder" size={16} color={colors.textMuted} /></Pressable>}{onSend && <Pressable style={styles.fileIconButton} onPress={(event) => stopAndRun(event, onSend)} accessibilityRole="button" accessibilityLabel={`${file.name} PC로 보내기`}><Feather name="send" size={16} color={colors.primary} /></Pressable>}<FileBadge label={file.type} /></View></Pressable>;
@@ -428,7 +502,7 @@ const styles = StyleSheet.create({
   searchInputWrap: { height: 46, borderRadius: radius.md, backgroundColor: colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14 }, documentSearchInput: { flex: 1, color: colors.text, fontSize: 13, paddingVertical: 0 }, headerActions: { flexDirection: "row", alignItems: "center" }, chips: { marginTop: 10, flexGrow: 0 }, folderChips: { marginTop: 6, flexGrow: 0 }, chipContent: { gap: 8, alignItems: "center" },
   folderComposer: { minHeight: 54, marginTop: 8, paddingLeft: 12, borderRadius: 11, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: "row", alignItems: "center" }, folderInput: { flex: 1, color: colors.text, fontSize: 13 }, folderComposerButton: { minWidth: 60, minHeight: 44, alignItems: "center", justifyContent: "center" }, folderComposerSave: { color: colors.primary, fontSize: 12, fontWeight: "800" }, folderComposerCancel: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
   movePanel: { marginTop: 8, padding: 10, borderRadius: 11, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }, moveHeader: { minHeight: 44, flexDirection: "row", alignItems: "center" }, moveTitle: { flex: 1, color: colors.text, fontSize: 12, fontWeight: "800" }, compactIconButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  transferBanner: { marginTop: 8, minHeight: 58, borderRadius: 12, backgroundColor: colors.primarySoft, paddingLeft: 12, flexDirection: "row", alignItems: "center", gap: 10 }, transferText: { flex: 1, paddingVertical: 8 }, transferTitle: { fontSize: 12, fontWeight: "800", color: colors.text }, transferMeta: { marginTop: 2, fontSize: 10, color: colors.textMuted }, assignButton: { minWidth: 78, minHeight: 44, paddingHorizontal: 8, alignItems: "center", justifyContent: "center" }, assignButtonText: { color: colors.primary, fontSize: 11, fontWeight: "800" },
+  transferBanner: { marginTop: 8, minHeight: 58, borderRadius: 12, backgroundColor: colors.primarySoft, paddingLeft: 12, flexDirection: "row", alignItems: "center", gap: 10 }, transferText: { flex: 1, paddingVertical: 8 }, transferTitle: { fontSize: 12, fontWeight: "800", color: colors.text }, transferMeta: { marginTop: 2, fontSize: 10, color: colors.textMuted }, assignButton: { minWidth: 78, minHeight: 44, paddingHorizontal: 8, alignItems: "center", justifyContent: "center" }, assignButtonText: { color: colors.primary, fontSize: 11, fontWeight: "800" }, cancelTransferButton: { minWidth: 50, minHeight: 44, paddingHorizontal: 8, alignItems: "center", justifyContent: "center" }, cancelTransferText: { color: colors.danger, fontSize: 11, fontWeight: "800" },
   documentList: { marginTop: 8, flex: 1, backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10 }, documentGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, paddingVertical: 10 }, fileActions: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10 }, smallButton: { minHeight: 44, borderRadius: 11, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 8 }, smallButtonText: { fontSize: 13, fontWeight: "700", color: colors.text },
   fileRow: { minHeight: 64, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }, fileRowLarge: { minHeight: 68, paddingHorizontal: 4 }, fileLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }, fileText: { flex: 1 }, fileIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft }, fileIconLarge: { width: 40, height: 40 }, fileName: { color: colors.text, fontSize: 13, fontWeight: "700" }, fileMeta: { color: colors.textMuted, fontSize: 11, marginTop: 3 }, fileRight: { flexDirection: "row", alignItems: "center" }, fileIconButton: { width: 44, height: 44, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   fileTile: { width: "48%", minHeight: 160, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background }, tileIcon: { width: 48, height: 48, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" }, tileName: { minHeight: 36, marginTop: 10, color: colors.text, fontSize: 12, lineHeight: 17, fontWeight: "800" }, tileActions: { marginTop: 4, flexDirection: "row", justifyContent: "flex-end" },
