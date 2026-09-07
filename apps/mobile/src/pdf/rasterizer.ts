@@ -80,7 +80,12 @@ export function createCachedPdfPageRasterizer(
           keyInfo.delete(key);
           throw error;
         }
-      }, estimatedPageBytes(request));
+      }, estimatedPageBytes(request)).then((uri) => {
+        // A concurrent invalidation/clear can intentionally skip insertion;
+        // do not retain metadata for that uncached result.
+        if (cache.get(key) !== uri) keyInfo.delete(key);
+        return uri;
+      });
     },
     release(uri) {
       uriRevisions.delete(uri);
