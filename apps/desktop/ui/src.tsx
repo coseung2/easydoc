@@ -1,15 +1,29 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { QRCodeSVG } from "qrcode.react";
+import { createKeyedGate, sectionFromEventPayload, SECTIONS, shouldAdoptServerAlias, type Section } from "./state";
 import "./style.css";
 
 type InboxItem = { filename: string; size: number; arrivedAt: number; status: string; path: string };
 type Settings = { desktopAlias: string; receiveDir: string; paired: boolean; pairedCount: number; connected: boolean };
 type Pairing = { qrPayload: string; roomId: string };
 type PairedDevice = { roomId: string; deviceId: string; mobileId?: string; mobileAlias?: string; authorized: boolean; connected: boolean; error?: string };
+type AliasStatus = "idle" | "saving" | "saved";
 
-type Dialog = { title: string; message?: string; value?: string; confirmLabel: string; destructive?: boolean; onConfirm: (value: string) => void };
+type DialogConfig = {
+  title: string;
+  message?: string;
+  value?: string;
+  confirmLabel: string;
+  destructive?: boolean;
+  requiresValue?: boolean;
+  actionKey: string;
+  onConfirm: (value: string) => Promise<void>;
+};
+
+type DialogState = DialogConfig & { busy: boolean; error: string | null };
 
 function errorLabel(error: unknown) {
   const code = String(error).replace(/^Error:\s*/, "");
@@ -45,52 +59,248 @@ function App() {
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [message, setMessage] = useState("");
   const [desktopAlias, setDesktopAlias] = useState("");
-  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [aliasDirty, setAliasDirty] = useState(false);
+  const [aliasStatus, setAliasStatus] = useState<AliasStatus>("idle");
+  const [aliasError, setAliasError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [busyActions, setBusyActions] = useState<Set<string>>(() => new Set());
+  const [sectionErrors, setSectionErrors] = useState<Record<Section, string | null>>({ settings: null, inbox: null, pairings: null });
 
-  const refresh = async () => {
-    const [nextSettings, nextItems, nextDevices] = await Promise.all([
-      invoke<Settings>("get_settings"),
-      invoke<InboxItem[]>("list_inbox"),
-      invoke<PairedDevice[]>("list_pairings"),
-    ]);
-    setSettings(nextSettings);
-    setItems(nextItems);
-    setDevices(nextDevices);
-    setDesktopAlias((current) => current || nextSettings.desktopAlias);
-    return nextSettings;
+  const aliasDirtyRef = useRef(false);
+  const refreshGateRef = useRef(createKeyedGate());
+  const actionGateRef = useRef(createKeyedGate());
+
+  const setBusy = (key: string, active: boolean) => {
+    setBusyActions((current) => {
+      const next = new Set(current);
+      if (active) next.add(key); else next.delete(key);
+      return next;
+    });
+  };
+
+  const runBusy = async <T,>(key: string, task: () => Promise<T>): Promise<T | undefined> => {
+    if (!actionGateRef.current.tryStart(key)) return undefined;
+    setBusy(key, true);
+    try {
+      return await task();
+    } finally {
+      actionGateRef.current.finish(key);
+      setBusy(key, false);
+    }
+  };
+
+  const runWithFeedback = async (key: string, task: () => Promise<unknown>) => {
+    setMessage("");
+    try {
+      await runBusy(key, task);
+    } catch (error) {
+      setMessage(errorLabel(error));
+    }
+  };
+
+  const refreshSection = async (section: Section): Promise<Settings | InboxItem[] | PairedDevice[] | undefined> => {
+    if (!refreshGateRef.current.tryStart(section)) return undefined;
+    setSectionErrors((current) => ({ ...current, [section]: null }));
+    try {
+      if (section === "settings") {
+        const nextSettings = await invoke<Settings>("get_settings");
+        setSettings(nextSettings);
+        if (shouldAdoptServerAlias(aliasDirtyRef.current)) {
+          setDesktopAlias(nextSettings.desktopAlias);
+          setAliasDirty(false);
+        }
+        return nextSettings;
+      }
+      if (section === "inbox") {
+        const nextItems = await invoke<InboxItem[]>("list_inbox");
+        setItems(nextItems);
+        return nextItems;
+      }
+      const nextDevices = await invoke<PairedDevice[]>("list_pairings");
+      setDevices(nextDevices);
+      return nextDevices;
+    } catch (error) {
+      setSectionErrors((current) => ({ ...current, [section]: errorLabel(error) }));
+      return undefined;
+    } finally {
+      refreshGateRef.current.finish(section);
+    }
+  };
+
+  const connect = async () => {
+    await runWithFeedback("connect", async () => {
+      await invoke("connect_receiver");
+      await Promise.all([refreshSection("settings"), refreshSection("pairings")]);
+    });
   };
 
   useEffect(() => {
-    refresh().then((initial) => { if (initial.paired) invoke("connect_receiver").catch((error) => setMessage(errorLabel(error))); }).catch((error) => setMessage(errorLabel(error)));
-    const id = setInterval(() => refresh().catch((error) => setMessage(errorLabel(error))), 3000);
-    return () => clearInterval(id);
+    let disposed = false;
+    const initialize = async () => {
+      const initialSettings = await refreshSection("settings");
+      await Promise.all([refreshSection("inbox"), refreshSection("pairings")]);
+      if (!disposed && initialSettings && !Array.isArray(initialSettings) && initialSettings.paired) void connect();
+    };
+    void initialize();
+
+    const refreshVisibleSections = () => {
+      for (const section of SECTIONS) void refreshSection(section);
+    };
+    const interval = setInterval(refreshVisibleSections, 15000);
+    const refreshOnFocus = () => { if (document.visibilityState === "visible") refreshVisibleSections(); };
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
+
+    let unlisten: (() => void) | undefined;
+    void listen<unknown>("easydoc:changed", (event) => {
+      const section = sectionFromEventPayload(event.payload);
+      if (section) void refreshSection(section);
+    }).then((stop) => {
+      if (disposed) stop(); else unlisten = stop;
+    }).catch(() => {
+      // Polling remains active when event support is unavailable (e.g. older builds).
+    });
+
+    return () => {
+      disposed = true;
+      clearInterval(interval);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+      unlisten?.();
+    };
   }, []);
 
-  const createPairing = async () => { setMessage(""); try { const next = await invoke<Pairing>("create_pairing"); setPairing({ ...next, qrPayload: `easydoc://pair?payload=${encodeURIComponent(next.qrPayload)}` }); await refresh(); } catch (error) { setMessage(errorLabel(error)); } };
-  const connect = async () => { setMessage(""); try { await invoke("connect_receiver"); await refresh(); } catch (error) { setMessage(errorLabel(error)); } };
-  const chooseFolder = async () => { try { const path = await invoke<string | null>("choose_receive_dir"); if (path) await refresh(); } catch (error) { setMessage(errorLabel(error)); } };
-  const renameItem = (item: InboxItem) => setDialog({ title: "파일 이름 변경", value: item.filename, confirmLabel: "저장", onConfirm: async (next) => { if (!next || next === item.filename) return; try { await invoke("rename_file", { path: item.path, newName: next }); await refresh(); } catch (error) { setMessage(errorLabel(error)); } } });
-  const deleteItem = (item: InboxItem) => setDialog({ title: "파일을 삭제할까요?", message: item.filename, confirmLabel: "삭제", destructive: true, onConfirm: async () => { try { await invoke("delete_file", { path: item.path }); await refresh(); } catch (error) { setMessage(errorLabel(error)); } } });
-  const printItem = async (item: InboxItem) => { try { await invoke("print_file", { path: item.path }); } catch (error) { setMessage(errorLabel(error)); } };
-  const saveDesktopAlias = async () => { setMessage(""); try { const next = await invoke<Settings>("set_desktop_alias", { desktopAlias }); setSettings(next); setDesktopAlias(next.desktopAlias); } catch (error) { setMessage(errorLabel(error)); } };
-  const renameDevice = async (device: PairedDevice) => {
-    setDialog({ title: "휴대폰 이름 변경", value: device.mobileAlias ?? "", confirmLabel: "저장", onConfirm: async (next) => { setMessage(""); try { setDevices(await invoke<PairedDevice[]>("set_pairing_label", { roomId: device.roomId, mobileAlias: next })); } catch (error) { setMessage(errorLabel(error)); } } });
+  const createPairing = () => void runWithFeedback("create-pairing", async () => {
+    const next = await invoke<Pairing>("create_pairing");
+    setPairing({ ...next, qrPayload: `easydoc://pair?payload=${encodeURIComponent(next.qrPayload)}` });
+    await Promise.all([refreshSection("settings"), refreshSection("pairings")]);
+  });
+
+  const chooseFolder = () => void runWithFeedback("choose-folder", async () => {
+    const path = await invoke<string | null>("choose_receive_dir");
+    if (path) await refreshSection("settings");
+  });
+
+  const saveDesktopAlias = async () => {
+    const persistedAlias = settings?.desktopAlias ?? "";
+    const unchanged = desktopAlias.trim() === persistedAlias.trim();
+    if (!aliasDirty || unchanged || actionGateRef.current.isActive("save-alias")) return;
+    setMessage("");
+    setAliasError(null);
+    setAliasStatus("saving");
+    try {
+      const next = await runBusy("save-alias", () => invoke<Settings>("set_desktop_alias", { desktopAlias }));
+      if (!next) return;
+      setSettings(next);
+      aliasDirtyRef.current = false;
+      setAliasDirty(false);
+      setDesktopAlias(next.desktopAlias);
+      setAliasStatus("saved");
+    } catch (error) {
+      setAliasStatus("idle");
+      setAliasError(errorLabel(error));
+    }
   };
-  const revokeDevice = async (device: PairedDevice) => {
-    setDialog({ title: "휴대폰 연결을 해제할까요?", message: deviceName(device), confirmLabel: "연결 해제", destructive: true, onConfirm: async () => { setMessage(""); try { await invoke("revoke_pairing", { roomId: device.roomId }); await refresh(); } catch (error) { setMessage(errorLabel(error)); } } });
+
+  const openDialog = (config: DialogConfig) => {
+    setMessage("");
+    setDialog({ ...config, busy: false, error: null });
   };
+
+  const renameItem = (item: InboxItem) => openDialog({
+    title: "파일 이름 변경",
+    value: item.filename,
+    requiresValue: true,
+    confirmLabel: "저장",
+    actionKey: `rename:${item.path}`,
+    onConfirm: async (next) => {
+      if (next === item.filename) return;
+      await runBusy(`rename:${item.path}`, async () => {
+        await invoke("rename_file", { path: item.path, newName: next });
+        await refreshSection("inbox");
+      });
+    },
+  });
+
+  const deleteItem = (item: InboxItem) => openDialog({
+    title: "파일을 삭제할까요?",
+    message: item.filename,
+    confirmLabel: "삭제",
+    destructive: true,
+    actionKey: `delete:${item.path}`,
+    onConfirm: async () => {
+      await runBusy(`delete:${item.path}`, async () => {
+        await invoke("delete_file", { path: item.path });
+        await refreshSection("inbox");
+      });
+    },
+  });
+
+  const printItem = (item: InboxItem) => void runWithFeedback(`print:${item.path}`, () => invoke("print_file", { path: item.path }));
+  const openPath = (item: InboxItem) => void runWithFeedback(`open:${item.path}`, () => invoke("open_path", { path: item.path }));
+  const revealPath = (item: InboxItem) => void runWithFeedback(`reveal:${item.path}`, () => invoke("reveal_path", { path: item.path }));
+
+  const renameDevice = (device: PairedDevice) => openDialog({
+    title: "휴대폰 이름 변경",
+    value: device.mobileAlias ?? "",
+    confirmLabel: "저장",
+    actionKey: `rename-device:${device.roomId}`,
+    onConfirm: async (next) => {
+      const nextDevices = await runBusy(`rename-device:${device.roomId}`, () => invoke<PairedDevice[]>("set_pairing_label", { roomId: device.roomId, mobileAlias: next }));
+      if (nextDevices) setDevices(nextDevices);
+    },
+  });
+
+  const revokeDevice = (device: PairedDevice) => openDialog({
+    title: "휴대폰 연결을 해제할까요?",
+    message: deviceName(device),
+    confirmLabel: "연결 해제",
+    destructive: true,
+    actionKey: `revoke:${device.roomId}`,
+    onConfirm: async () => {
+      await runBusy(`revoke:${device.roomId}`, async () => {
+        await invoke("revoke_pairing", { roomId: device.roomId });
+        await Promise.all([refreshSection("settings"), refreshSection("pairings")]);
+      });
+    },
+  });
+
+  const handleDialogSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const active = dialog;
+    if (!active || active.busy) return;
+    if (active.requiresValue && !(active.value ?? "").trim()) {
+      setDialog({ ...active, error: errorLabel("invalid_filename") });
+      return;
+    }
+    setDialog({ ...active, busy: true, error: null });
+    try {
+      await active.onConfirm(active.value ?? "");
+      setDialog(null);
+    } catch (error) {
+      setDialog((current) => current ? { ...current, busy: false, error: errorLabel(error) } : current);
+    }
+  };
+
+  const aliasUnchanged = desktopAlias.trim() === (settings?.desktopAlias ?? "").trim();
+  const aliasSaveDisabled = !aliasDirty || aliasUnchanged || aliasStatus === "saving" || busyActions.has("save-alias");
+  const settingsError = sectionErrors.settings;
+  const inboxError = sectionErrors.inbox;
+  const pairingsError = sectionErrors.pairings;
 
   return <main className="shell">
     <header><div><p className="eyebrow">WINDOWS COMPANION</p><h1>Scan Inbox</h1><p className="sub">휴대폰에서 보낸 문서가 여기에 자동으로 저장됩니다.</p></div><div className={`presence ${settings?.connected ? "online" : ""}`} aria-live="polite"><span aria-hidden="true"/> {settings?.connected ? "연결됨" : "연결 대기"}</div></header>
-    <section className="toolbar"><div><strong>저장 위치</strong><p>{settings?.receiveDir ?? "불러오는 중..."}</p></div><button className="secondary" onClick={chooseFolder}>폴더 변경</button><button onClick={settings?.paired ? connect : createPairing}>{settings?.paired ? "수신 연결" : "휴대폰 연결"}</button>{settings?.paired && <button className="secondary" onClick={createPairing}>휴대폰 추가</button>}</section>
-    <section className="alias-config"><label htmlFor="desktop-alias"><strong>이 PC 이름</strong><p>휴대폰에서 표시할 이름</p></label><input id="desktop-alias" value={desktopAlias} onChange={(event) => setDesktopAlias(event.target.value)} maxLength={80} onKeyDown={(event) => { if (event.key === "Enter") void saveDesktopAlias(); }} /><button className="secondary" onClick={saveDesktopAlias}>저장</button></section>
+    <section className="toolbar"><div><strong>저장 위치</strong><p>{settings?.receiveDir ?? "불러오는 중..."}</p></div><button className="secondary" onClick={chooseFolder} disabled={busyActions.has("choose-folder")}>{busyActions.has("choose-folder") ? "변경 중…" : "폴더 변경"}</button><button onClick={() => void (settings?.paired ? connect() : createPairing())} disabled={busyActions.has(settings?.paired ? "connect" : "create-pairing")}>{busyActions.has(settings?.paired ? "connect" : "create-pairing") ? "처리 중…" : (settings?.paired ? "수신 연결" : "휴대폰 연결")}</button>{settings?.paired && <button className="secondary" onClick={createPairing} disabled={busyActions.has("create-pairing")}>{busyActions.has("create-pairing") ? "추가 중…" : "휴대폰 추가"}</button>}</section>
+    {settingsError && <div className="section-error" role="alert">설정 정보를 새로 고치지 못했습니다. {settingsError}</div>}
+    <section className="alias-config"><label htmlFor="desktop-alias"><strong>이 PC 이름</strong><p>휴대폰에서 표시할 이름</p></label><input id="desktop-alias" value={desktopAlias} onChange={(event) => { aliasDirtyRef.current = true; setAliasDirty(true); setAliasError(null); setAliasStatus("idle"); setDesktopAlias(event.target.value); }} maxLength={80} aria-invalid={Boolean(aliasError)} aria-describedby={aliasError ? "desktop-alias-error" : undefined} onKeyDown={(event) => { if (event.key === "Enter") void saveDesktopAlias(); }} /><button className="secondary" onClick={() => void saveDesktopAlias()} disabled={aliasSaveDisabled}>{aliasStatus === "saving" ? "저장 중…" : "저장"}</button>{aliasStatus === "saved" && <span className="save-status" role="status">저장됨</span>}</section>
+    {aliasError && <div id="desktop-alias-error" className="field-error" role="alert">{aliasError}</div>}
     {message && <div className="error" role="alert">{message}</div>}
     {pairing && <section className="pairing"><div className="qr"><QRCodeSVG value={pairing.qrPayload} size={260} level="L" marginSize={4} /></div><div className="pairing-copy"><strong>휴대폰 연결</strong><p>휴대폰 기본 카메라로 QR을 찍고 EasyDoc 열기를 선택하세요.</p></div><button className="secondary" onClick={() => setPairing(null)}>닫기</button></section>}
-    <section className="devices" aria-labelledby="devices-title"><div className="section-title"><h2 id="devices-title">연결된 휴대폰</h2><span>{devices.length}개</span></div>{devices.length === 0 ? <div className="device-empty">휴대폰을 연결하면 여기에 표시됩니다.</div> : <ul className="device-list">{devices.map((device) => <li className="device-row" key={device.roomId}><div className="device-icon" aria-hidden="true">PHONE</div><div className="device-info"><strong title={deviceName(device)}>{deviceName(device)}</strong><p>{device.error ? errorLabel(device.error) : (device.mobileId ?? "QR 스캔 후 기기 정보가 표시됩니다.")}</p></div><span className={`device-state ${device.connected ? "online" : ""}`}><span aria-hidden="true"/>{deviceState(device)}</span><div className="item-actions"><button className="ghost" onClick={() => renameDevice(device)} aria-label={`${deviceName(device)} 이름 바꾸기`}>이름</button><button className="ghost danger" onClick={() => revokeDevice(device)} aria-label={`${deviceName(device)} 연결 해제`}>연결 해제</button></div></li>)}</ul>}</section>
-    <section className="inbox"><div className="section-title"><h2>받은 파일</h2><span>{items.length}개</span></div>{items.length === 0 ? <div className="empty"><div className="empty-icon" aria-hidden="true">↓</div><strong>아직 받은 파일이 없습니다</strong><p>휴대폰에서 문서를 스캔하고 이 PC로 보내세요.</p></div> : items.map((item) => <article key={`${item.path}-${item.arrivedAt}`}><div className="file-icon" aria-hidden="true">FILE</div><div className="file-info"><strong title={item.filename}>{item.filename}</strong><p>{sizeLabel(item.size)} · {timeLabel(item.arrivedAt)}</p></div><span className={`status ${item.status}`}>{statusLabel(item.status)}</span><div className="item-actions"><button className="ghost" onClick={() => invoke("open_path", { path: item.path }).catch((error) => setMessage(errorLabel(error)))}>열기</button><button className="ghost" onClick={() => invoke("reveal_path", { path: item.path }).catch((error) => setMessage(errorLabel(error)))}>폴더</button><button className="ghost" onClick={() => renameItem(item)}>이름</button><button className="ghost" onClick={() => printItem(item)}>인쇄</button><button className="ghost danger" onClick={() => deleteItem(item)}>삭제</button></div></article>)}</section>
-    {dialog && <div className="dialog-backdrop" role="presentation"><form className="dialog" onSubmit={(event) => { event.preventDefault(); const value = new FormData(event.currentTarget).get("value"); setDialog(null); void dialog.onConfirm(typeof value === "string" ? value : ""); }}><h2>{dialog.title}</h2>{dialog.message && <p>{dialog.message}</p>}{dialog.value !== undefined && <input name="value" defaultValue={dialog.value} autoFocus maxLength={80} /> }<div className="dialog-actions"><button type="button" className="secondary" onClick={() => setDialog(null)}>취소</button><button className={dialog.destructive ? "danger-button" : ""}>{dialog.confirmLabel}</button></div></form></div>}
+    <section className="devices" aria-labelledby="devices-title"><div className="section-title"><h2 id="devices-title">연결된 휴대폰</h2><span>{devices.length}개</span></div>{pairingsError && <div className="section-error" role="alert">휴대폰 연결 정보를 새로 고치지 못했습니다. {pairingsError}</div>}{devices.length === 0 ? <div className="device-empty">휴대폰을 연결하면 여기에 표시됩니다.</div> : <ul className="device-list">{devices.map((device) => { const renameKey = `rename-device:${device.roomId}`; const revokeKey = `revoke:${device.roomId}`; return <li className="device-row" key={device.roomId}><div className="device-icon" aria-hidden="true">PHONE</div><div className="device-info"><strong title={deviceName(device)}>{deviceName(device)}</strong><p>{device.error ? errorLabel(device.error) : (device.mobileId ?? "QR 스캔 후 기기 정보가 표시됩니다.")}</p></div><span className={`device-state ${device.connected ? "online" : ""}`}><span aria-hidden="true"/>{deviceState(device)}</span><div className="item-actions"><button className="ghost" onClick={() => renameDevice(device)} disabled={busyActions.has(renameKey)} aria-label={`${deviceName(device)} 이름 바꾸기`}>{busyActions.has(renameKey) ? "저장 중…" : "이름"}</button><button className="ghost danger" onClick={() => revokeDevice(device)} disabled={busyActions.has(revokeKey)} aria-label={`${deviceName(device)} 연결 해제`}>{busyActions.has(revokeKey) ? "해제 중…" : "연결 해제"}</button></div></li>; })}</ul>}</section>
+    <section className="inbox"><div className="section-title"><h2>받은 파일</h2><span>{items.length}개</span></div>{inboxError && <div className="section-error" role="alert">받은 파일을 새로 고치지 못했습니다. {inboxError}</div>}{items.length === 0 ? <div className="empty"><div className="empty-icon" aria-hidden="true">↓</div><strong>아직 받은 파일이 없습니다</strong><p>휴대폰에서 문서를 스캔하고 이 PC로 보내세요.</p></div> : items.map((item) => { const renameKey = `rename:${item.path}`; const deleteKey = `delete:${item.path}`; return <article key={`${item.path}-${item.arrivedAt}`}><div className="file-icon" aria-hidden="true">FILE</div><div className="file-info"><strong title={item.filename}>{item.filename}</strong><p>{sizeLabel(item.size)} · {timeLabel(item.arrivedAt)}</p></div><span className={`status ${item.status}`}>{statusLabel(item.status)}</span><div className="item-actions"><button className="ghost" onClick={() => openPath(item)}>열기</button><button className="ghost" onClick={() => revealPath(item)}>폴더</button><button className="ghost" onClick={() => renameItem(item)} disabled={busyActions.has(renameKey)}>{busyActions.has(renameKey) ? "저장 중…" : "이름"}</button><button className="ghost" onClick={() => printItem(item)} disabled={busyActions.has(`print:${item.path}`)}>{busyActions.has(`print:${item.path}`) ? "인쇄 중…" : "인쇄"}</button><button className="ghost danger" onClick={() => deleteItem(item)} disabled={busyActions.has(deleteKey)}>{busyActions.has(deleteKey) ? "삭제 중…" : "삭제"}</button></div></article>; })}</section>
+    {dialog && <div className="dialog-backdrop" role="presentation"><form className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onSubmit={(event) => void handleDialogSubmit(event)}><h2 id="dialog-title">{dialog.title}</h2>{dialog.message && <p>{dialog.message}</p>}{dialog.value !== undefined && <input name="value" value={dialog.value} onChange={(event) => setDialog((current) => current ? { ...current, value: event.target.value, error: null } : current)} autoFocus maxLength={80} aria-invalid={Boolean(dialog.error)} aria-describedby={dialog.error ? "dialog-error" : undefined} />}{dialog.error && <div id="dialog-error" className="dialog-error" role="alert">{dialog.error}</div>}<div className="dialog-actions"><button type="button" className="secondary" onClick={() => setDialog(null)} disabled={dialog.busy}>취소</button><button type="submit" className={dialog.destructive ? "danger-button" : ""} disabled={dialog.busy}>{dialog.busy ? "처리 중…" : dialog.confirmLabel}</button></div></form></div>}
     <footer><span>EasyDoc는 기본 전송 경로에서 릴레이 서버에 문서 본문을 저장하지 않습니다.</span><button className="ghost" onClick={() => invoke("hide_window")}>트레이로 숨기기</button></footer>
   </main>;
 }
 
-createRoot(document.getElementById("root")!).render(<React.StrictMode><App/></React.StrictMode>);
+createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
