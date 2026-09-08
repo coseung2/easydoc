@@ -824,6 +824,7 @@ export function App(): React.JSX.Element {
   // when no provider is configured — see isAgentConfigured/handleSend) ----
   const [aiSettings, setAiSettingsState] = useState<AiSettings | null>(null)
   const aiSettingsRef = useRef<AiSettings | null>(null)
+  const userSkillsRef = useRef<AiSettings['userSkills']>(undefined)
   aiSettingsRef.current = aiSettings
 
   /** gsk login state for the cloud-tools gate (refreshed on mount and window focus) */
@@ -1113,7 +1114,10 @@ export function App(): React.JSX.Element {
         createImageSkill(
           () => gskLoggedInRef.current && aiSettingsRef.current?.gskToolsEnabled !== false,
         ),
-        createUserSkillsSkill('sheets', () => aiSettingsRef.current?.userSkills),
+        createUserSkillsSkill(
+          'sheets',
+          () => userSkillsRef.current ?? aiSettingsRef.current?.userSkills,
+        ),
       ]),
       events: {
         onText: (text) => {
@@ -5360,6 +5364,10 @@ export function App(): React.JSX.Element {
         onRemoveAttachment={handleRemoveAttachment}
         onPromptChange={setPrompt}
         onSend={handleSend}
+        loadAiSkills={async () => {
+          userSkillsRef.current = (await window.desktopApi.getAiSettings()).userSkills ?? []
+          return userSkillsRef.current
+        }}
         onStop={handleStopAgent}
         onNewChat={handleNewChat}
         onUndo={handleUndo}

@@ -725,6 +725,8 @@ export function AiPanel({
 
       <div className="ai-composer">
         <AiComposer
+          skillApp="pdf"
+          loadSkills={async () => (await window.pdfApi.getAiSettings()).userSkills}
           value={prompt}
           busy={busy}
           header={

@@ -428,6 +428,7 @@ export function AiPanel({
   const editorRef = useRef(editor)
   editorRef.current = editor
   const settingsRef = useRef(settings)
+  const userSkillsRef = useRef<AiSettings['userSkills']>(undefined)
   settingsRef.current = settings
   const blocksRef = useRef(blocks)
   blocksRef.current = blocks
@@ -608,7 +609,10 @@ export function AiPanel({
           () => hfAccessRef.current,
         ),
         createFilesSkill(availableAttachments),
-        createUserSkillsSkill('docs', () => settingsRef.current?.userSkills),
+        createUserSkillsSkill(
+          'docs',
+          () => userSkillsRef.current ?? settingsRef.current?.userSkills,
+        ),
       ]),
       captureSnapshot: () => editorRef.current.getJSON() as PmNode,
       events: {
@@ -1295,6 +1299,11 @@ export function AiPanel({
           onFocus={(qid) => onQueueFocus?.(qid)}
         />
         <AiComposer
+          skillApp="docs"
+          loadSkills={async () => {
+            userSkillsRef.current = (await window.desktop.getAiSettings()).userSkills ?? []
+            return userSkillsRef.current
+          }}
           header={
             (hasScopeSelection || attachments.length > 0) && (
               <>

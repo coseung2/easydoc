@@ -1,3 +1,5 @@
+export { SkillMentionTextarea } from './SkillMentionTextarea'
+export type { SkillMentionProps } from './SkillMentionTextarea'
 export { AiComposer } from './AiComposer'
 export {
   ColorPicker,

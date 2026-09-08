@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { IconEnter, IconSend, IconStop } from './icons'
+import { SkillMentionTextarea, type SkillMentionProps } from './SkillMentionTextarea'
 
 // Keep in sync with the CSS `max-height` on `.ai-input-box textarea` (7 lines à 24px)
 const MAX_TEXTAREA_HEIGHT = 168
@@ -31,6 +32,8 @@ export function AiComposer({
   onSend,
   onStop,
   onPasteFiles,
+  skillApp,
+  loadSkills,
 }: {
   readonly value: string
   readonly busy: boolean
@@ -59,7 +62,7 @@ export function AiComposer({
   readonly onStop: () => void
   /** clipboard files pasted into the textarea (screenshots, copied files); text paste stays native */
   readonly onPasteFiles?: ((files: File[]) => void) | undefined
-}): React.JSX.Element {
+} & SkillMentionProps): React.JSX.Element {
   const innerRef = useRef<HTMLTextAreaElement | null>(null)
   const ref = textareaRef ?? innerRef
   const canSend = value.trim().length > 0 && !busy
@@ -80,14 +83,16 @@ export function AiComposer({
   return (
     <div className="ai-input-box">
       {header}
-      <textarea
+      <SkillMentionTextarea
         ref={ref}
         value={value}
+        skillApp={skillApp}
+        loadSkills={loadSkills}
         placeholder={placeholder}
         aria-label={ariaLabel}
         rows={1}
         dir="auto"
-        onChange={(e) => onChange(e.target.value)}
+        onValueChange={onChange}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()

@@ -1,3 +1,4 @@
+import type { SkillMentionProps } from '@genoffice/ui'
 import { useEffect, useRef, useState } from 'react'
 import { platformShortcuts } from '@genoffice/i18n'
 import {
@@ -174,6 +175,7 @@ interface ExcelShellProps {
   /** Send the composer text, or the given instruction when provided (Retry also
    *  resends that message's original attachments and passes the failed bubble's
    *  chat index so the send replaces it in place) */
+  readonly loadAiSkills?: SkillMentionProps['loadSkills']
   readonly onSend: (
     instruction?: string,
     attachments?: readonly AttachmentMeta[],
@@ -342,6 +344,7 @@ export function ExcelShell({
   onApplyHeaderFooter,
   onPromptChange,
   onSend,
+  loadAiSkills,
   onStop,
   onNewChat,
   onUndo,
@@ -658,6 +661,7 @@ export function ExcelShell({
           aiBusy={aiBusy}
           onPromptChange={onPromptChange}
           onSend={onSend}
+          loadSkills={loadAiSkills}
           onStop={onStop}
           onNewChat={onNewChat}
           onUndo={onUndo}

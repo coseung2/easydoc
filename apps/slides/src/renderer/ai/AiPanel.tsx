@@ -39,7 +39,7 @@ import {
   settingsSupportVision,
 } from './slide-qc'
 import { useI18n, t as tGlobal, aiLangDirective, type TFunc } from '../i18n/locale'
-import { Markdown } from '@genoffice/ui'
+import { Markdown, SkillMentionTextarea } from '@genoffice/ui'
 import { GensparkMark } from '../components/icons'
 import sendEnterOn from '../assets/send-enter-on.png'
 import sendEnterOff from '../assets/send-enter-off.png'
@@ -519,6 +519,7 @@ export function AiPanel({
   const onDeckProgressRef = useRef(onDeckProgress)
   onDeckProgressRef.current = onDeckProgress
   const settingsRef = useRef(settings)
+  const userSkillsRef = useRef<AiSettings['userSkills']>(undefined)
   settingsRef.current = settings
 
   /** gsk login state for the cloud-tools gate (refreshed on mount and window focus) */
@@ -1329,7 +1330,10 @@ export function AiPanel({
       skill: composeSkills('slides+files', '', [
         createSlidesSkill(access),
         createFilesSkill(availableAttachments, (path) => readAttachmentPathsRef.current.add(path)),
-        createUserSkillsSkill('slides', () => settingsRef.current?.userSkills),
+        createUserSkillsSkill(
+          'slides',
+          () => userSkillsRef.current ?? settingsRef.current?.userSkills,
+        ),
       ]),
       events: {
         onText: (text) => {
@@ -2327,16 +2331,21 @@ export function AiPanel({
                 )}
               </div>
             )}
-            <textarea
+            <SkillMentionTextarea
               ref={inputRef}
+              skillApp="slides"
+              loadSkills={async () => {
+                userSkillsRef.current = (await window.slidesApi.getAiSettings()).userSkills ?? []
+                return userSkillsRef.current
+              }}
               value={input}
               dir="auto"
               data-slides-ai-input="true"
               data-deck-undo-ready={!busy && !inputEditedSinceRunRef.current ? 'true' : 'false'}
               placeholder={t(deckEmpty ? 'aiInputPlaceholderGen' : 'aiInputPlaceholder')}
-              onChange={(e) => {
+              onValueChange={(value) => {
                 inputEditedSinceRunRef.current = true
-                setInput(e.target.value)
+                setInput(value)
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

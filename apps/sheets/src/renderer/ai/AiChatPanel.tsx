@@ -1,3 +1,4 @@
+import type { SkillMentionProps } from '@genoffice/ui'
 import React, { useEffect, useRef, useState } from 'react'
 import { AiComposer, AiTypingIndicator } from '@genoffice/ui'
 import { GensparkMark } from '../ribbon-icons'
@@ -222,6 +223,7 @@ export function AiChatPanel({
   aiBusy,
   onPromptChange,
   onSend,
+  loadSkills,
   onStop,
   onNewChat,
   onUndo,
@@ -255,6 +257,7 @@ export function AiChatPanel({
   /** Send the composer text, or the given instruction when provided (used by the
    *  failed-run Retry, which also resends the message's original attachments;
    *  retryIndex is the failed bubble's chat index so the send replaces it in place) */
+  readonly loadSkills?: SkillMentionProps['loadSkills']
   readonly onSend: (
     instruction?: string,
     attachments?: readonly AttachmentMeta[],
@@ -691,6 +694,8 @@ export function AiChatPanel({
       <div className="ai-composer">
         {attachNotice && <div className="ai-attach-notice">{attachNotice}</div>}
         <AiComposer
+          skillApp="sheets"
+          loadSkills={loadSkills}
           header={
             <>
               {/* Only a deliberate multi-cell selection shows here: it tells the

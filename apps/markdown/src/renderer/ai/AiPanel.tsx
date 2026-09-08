@@ -767,6 +767,8 @@ export function AiPanel({
           />
         )}
         <AiComposer
+          skillApp="markdown"
+          loadSkills={async () => (await window.markdownApi.getAiSettings()).userSkills}
           value={prompt}
           busy={busy}
           header={
