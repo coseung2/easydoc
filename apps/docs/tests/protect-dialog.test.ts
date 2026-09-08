@@ -1,11 +1,37 @@
 // Protect Document dialog (Review > Protect): the dialog turns form state into
 // a diff (ProtectDialogResult) — untouched sections must stay undefined, and
 // removing a password-protected restriction must verify the password first.
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { hashProtectionPassword, verifyProtectionPassword } from '@genoffice/docx-engine'
 import { ProtectDialog, type ProtectDialogResult } from '../src/renderer/components/ProtectDialog'
+
+const { protectionJobs } = vi.hoisted(() => ({ protectionJobs: new Set<Promise<unknown>>() }))
+
+vi.mock('@genoffice/docx-engine', async (importOriginal) => {
+  const engine = await importOriginal<typeof import('@genoffice/docx-engine')>()
+  const track = <T>(job: Promise<T>): Promise<T> => {
+    protectionJobs.add(job)
+    void job.then(
+      () => protectionJobs.delete(job),
+      () => protectionJobs.delete(job),
+    )
+    return job
+  }
+  return {
+    ...engine,
+    hashProtectionPassword: (...args: Parameters<typeof engine.hashProtectionPassword>) =>
+      track(engine.hashProtectionPassword(...args)),
+    verifyProtectionPassword: (...args: Parameters<typeof engine.verifyProtectionPassword>) =>
+      track(engine.verifyProtectionPassword(...args)),
+  }
+})
+
+const mountedDialogs = new Set<() => Promise<void>>()
+afterEach(async () => {
+  for (const cleanup of mountedDialogs) await cleanup()
+})
 
 type Props = Parameters<typeof ProtectDialog>[0]
 
@@ -41,16 +67,13 @@ async function mount(partial: Partial<Props>) {
       ;(el as HTMLElement).click()
     })
   }
-  // submit hashes/verifies passwords asynchronously (iterated SHA-512); keep
-  // flushing until the expected outcome shows up instead of guessing a delay
+  // Await the real crypto work rather than imposing a second wall-clock timeout.
+  // Default 100,000-round hashing can exceed a polling deadline under suite contention.
   const submit = async (done: () => boolean) => {
     await click(host.querySelector('.btn-primary')!)
-    const start = Date.now()
-    while (!done() && Date.now() - start < 10_000) {
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 10))
-      })
-    }
+    await act(async () => {
+      while (protectionJobs.size) await Promise.all([...protectionJobs])
+    })
     expect(done()).toBe(true)
   }
   const applied = () => onApply.mock.calls.length > 0
@@ -58,7 +81,9 @@ async function mount(partial: Partial<Props>) {
   const cleanup = async () => {
     await act(async () => root.unmount())
     host.remove()
+    mountedDialogs.delete(cleanup)
   }
+  mountedDialogs.add(cleanup)
   return {
     host,
     onApply,
@@ -111,6 +136,7 @@ describe('ProtectDialog', () => {
     const result = d.onApply.mock.calls[0][0]
     expect(result.openPassword).toBeUndefined()
     expect(result.writeProtection?.hash).toBeTruthy()
+    expect(result.writeProtection?.spinCount).toBe(100000)
     expect(await verifyProtectionPassword('to-modify', result.writeProtection!)).toBe(true)
     await d.cleanup()
   })

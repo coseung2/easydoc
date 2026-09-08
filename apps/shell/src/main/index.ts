@@ -1,4 +1,5 @@
 import { execSync, spawn } from 'node:child_process'
+import { registerAiOAuth } from './ai-oauth'
 import {
   copyFileSync,
   cpSync,
@@ -185,7 +186,7 @@ import { HOME_CHANNELS } from '../shared/home-api'
 import type { TabKind } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
 import { showErrorDialog } from './error-dialog'
-import { normalizeRecentQuery, pageRecentPaths, statPathEntries } from './recent-files'
+import { pageRecentPaths, pageStarredPaths, statPathEntries } from './recent-files'
 import { isSameFile, isValidRenameName } from './rename-validation'
 import { TabManager } from './tab-manager'
 import { applyUpdateChannel, initAutoUpdater } from './updater'
@@ -2635,17 +2636,9 @@ function registerHomeIpc(): void {
     pageRecentPaths(readRecentFiles(), query, new Set(readStarredFiles())),
   )
 
-  // Starred files sort by mtime, which requires stat-ing them all first; they are hand-picked and few, so this is fine
-  ipcMain.handle(HOME_CHANNELS.starred, (_event, query: unknown): RecentPage => {
-    const { offset, limit, ext } = normalizeRecentQuery(query)
-    const all = statEntries(readStarredFiles()).sort((a, b) => b.mtimeMs - a.mtimeMs)
-    const filtered = ext ? all.filter((entry) => entry.ext === ext) : all
-    return {
-      entries: limit === 0 ? [] : filtered.slice(offset, offset + limit),
-      total: filtered.length,
-      totalAll: all.length,
-    }
-  })
+  ipcMain.handle(HOME_CHANNELS.starred, (_event, query: unknown): RecentPage =>
+    pageStarredPaths(readStarredFiles(), query),
+  )
 
   ipcMain.handle(HOME_CHANNELS.statPaths, (_event, paths: unknown): RecentEntry[] =>
     statEntries(stringPaths(paths)),
@@ -3870,6 +3863,7 @@ app.whenReady().then(async () => {
   }
 
   proxyBootstrap = installMainProcessProxy()
+  registerAiOAuth()
   app.setAccessibilitySupportEnabled(true)
   // Settle the shared uiLang from saved settings BEFORE any tab renderer can
   // ask 'app:get-language': the editor handlers return the i18n module's

@@ -1,4 +1,9 @@
-import type { AiChatResponse, AiProviderMeta, AiSettings } from '@genoffice/ai-provider'
+import type {
+  AiChatResponse,
+  AiOAuthStatus,
+  AiProviderMeta,
+  AiSettings,
+} from '@genoffice/ai-provider'
 import type { UpdateChannel } from './update-api'
 
 /** UI language; kept self-contained here (mirrors Lang in @genoffice/i18n) */
@@ -202,7 +207,21 @@ export interface HomeApi {
   getAiProviders(): AiCatalogEntry[]
   /** one-shot round trip against the given (possibly unsaved) settings — the settings-UI connection test */
   testAiSettings(settings: AiSettings): Promise<AiChatResponse>
+  getAiOAuthStatus(): Promise<AiOAuthStatus>
+  startAiOAuthLogin(): Promise<AiOAuthStatus>
+  cancelAiOAuthLogin(): Promise<void>
+  disconnectAiOAuth(): Promise<void>
+  /** Reopen the pending, main-owned authorization URL. */
+  openAiOAuthLogin(): Promise<void>
 }
+
+export const AI_OAUTH_CHANNELS = {
+  status: 'ai:oauth-status',
+  start: 'ai:oauth-start',
+  cancel: 'ai:oauth-cancel',
+  disconnect: 'ai:oauth-disconnect',
+  open: 'ai:oauth-open',
+} as const
 
 export interface AiCatalogEntry extends AiProviderMeta {
   /** default endpoint for fixed-endpoint providers ('' = model-dependent or user-supplied) */

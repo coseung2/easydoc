@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { watchAiSettings } from '@genoffice/ai-provider'
 import type {
   GroupRenderNode,
   RenderFill,
@@ -1127,7 +1128,7 @@ export function App() {
   useEffect(() => window.slidesApi.onRenamed((p) => setPath(p)), [])
 
   useEffect(() => {
-    void window.slidesApi.getAiSettings().then(setAiSettings)
+    return watchAiSettings(() => window.slidesApi.getAiSettings(), setAiSettings)
   }, [])
 
   // Recent files for the start screen

@@ -457,3 +457,20 @@
     transform: rotate(360deg);
   }
 }
+
+.set-oauth {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.set-oauth [role='alert'] {
+  color: var(--danger);
+}
+
+.set-oauth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

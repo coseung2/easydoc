@@ -39,8 +39,14 @@ const stale = APPS.filter((app) => {
 
 if (stale.length) {
   console.log(`Rebuilding stale preloads: ${stale.join(', ')}`)
+  const npmCli = process.env.npm_execpath
+  if (!npmCli) throw new Error('Run preload builds through npm run predev or npm run dev')
   for (const app of stale) {
-    const r = spawnSync('npm', ['run', 'build', '-w', `@genoffice/${app}`], { stdio: 'inherit' })
+    // Invoke the CLI with Node: npm.cmd cannot be spawned directly on Windows.
+    const r = spawnSync(process.execPath, [npmCli, 'run', 'build', '-w', `@genoffice/${app}`], {
+      stdio: 'inherit',
+    })
+    if (r.error) console.error(r.error.message)
     if (r.status !== 0) process.exit(r.status ?? 1)
   }
 }

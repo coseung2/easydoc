@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import {
   access,
+  link,
   mkdir,
   open,
   readFile,
@@ -90,13 +91,51 @@ async function exists(filePath: string): Promise<boolean> {
   }
 }
 
-async function collisionSafeName(directory: string, requested: string): Promise<string> {
+function* filenameCandidates(requested: string): Generator<string> {
   const parsed = path.parse(requested)
-  let candidate = requested
-  for (let index = 0; await exists(path.join(directory, candidate)); index += 1) {
-    candidate = `${parsed.name} (${index + 1})${parsed.ext}`
+  yield requested
+  for (let index = 1; ; index += 1) {
+    yield `${parsed.name} (${index})${parsed.ext}`
   }
-  return candidate
+}
+
+function isFileExistsError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'EEXIST'
+}
+
+async function reservePartial(
+  directory: string,
+  requested: string,
+): Promise<{ finalName: string; partPath: string; handle: FileHandle }> {
+  for (const finalName of filenameCandidates(requested)) {
+    if (await exists(path.join(directory, finalName))) continue
+    const partPath = path.join(directory, `${finalName}.part`)
+    try {
+      // Exclusive creation also reserves the name against other active transfers.
+      return { finalName, partPath, handle: await open(partPath, 'wx+') }
+    } catch (error) {
+      if (!isFileExistsError(error)) throw error
+    }
+  }
+  throw new Error('write_failed')
+}
+
+async function publishFile(
+  partPath: string,
+  directory: string,
+  requested: string,
+): Promise<string> {
+  for (const name of filenameCandidates(requested)) {
+    const finalPath = path.join(directory, name)
+    try {
+      // Linking publishes the verified file atomically and never replaces an existing file.
+      await link(partPath, finalPath)
+      return finalPath
+    } catch (error) {
+      if (!isFileExistsError(error)) throw error
+    }
+  }
+  throw new Error('write_failed')
 }
 
 async function sha256File(filePath: string): Promise<string> {
@@ -147,13 +186,12 @@ export class IncomingTransfer {
     await mkdir(rootDir, { recursive: true })
     if ((await freeSpaceCheck(rootDir)) < transfer.size) throw new Error('insufficient_space')
 
-    const finalName = await collisionSafeName(rootDir, safeFilename(transfer.name))
+    const requestedName = safeFilename(transfer.name)
     const metadataPath = path.join(rootDir, `.easydoc-${transfer.transferId}.json`)
-    const partPath = path.join(rootDir, `${finalName}.part`)
     if (await exists(metadataPath))
       return IncomingTransfer.resume(transfer.transferId, rootDir, transfer)
 
-    const handle = await open(partPath, 'wx+')
+    const { finalName, partPath, handle } = await reservePartial(rootDir, requestedName)
     const metadata: ReceiveMetadata = {
       version: 1,
       transfer,
@@ -277,9 +315,12 @@ export class IncomingTransfer {
       throw new Error('checksum_mismatch')
     }
 
-    const finalPath = path.join(this.rootDir, this.metadata.finalName)
-    await rename(this.partPath, finalPath)
-    await rm(this.metadataPath, { force: true })
+    const finalPath = await publishFile(this.partPath, this.rootDir, this.metadata.finalName)
+    // Publication commits the transfer; cleanup failures must not reject the received file.
+    await Promise.allSettled([
+      rm(this.partPath, { force: true }),
+      rm(this.metadataPath, { force: true }),
+    ])
     return {
       receivedThroughChunk: this.receivedThroughChunk,
       bytesWritten: this.bytesWritten,

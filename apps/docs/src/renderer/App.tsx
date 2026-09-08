@@ -14,6 +14,7 @@ import type { Editor } from '@tiptap/core'
 import { DOMParser as PmDOMParser, type Mark as PmMark } from '@tiptap/pm/model'
 import { NodeSelection } from '@tiptap/pm/state'
 import { Dropdown } from '@genoffice/ui'
+import { watchAiSettings } from '@genoffice/ai-provider'
 import { markdownPasteHtml } from './editor/markdown-paste'
 import { pasteTextSlice } from './editor/paste-text'
 import {
@@ -1001,7 +1002,7 @@ export function App() {
 
   useEffect(() => {
     void window.desktop.getRecentFiles().then(setRecent)
-    void window.desktop.getAiSettings().then(setSettings)
+    return watchAiSettings(() => window.desktop.getAiSettings(), setSettings)
   }, [])
 
   useEffect(() => {

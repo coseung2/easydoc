@@ -21,6 +21,7 @@ import {
   nativeImage,
   net,
   shell,
+  webContents,
 } from 'electron'
 import {
   appMenuLabels,
@@ -57,7 +58,6 @@ import {
   isAiOverloadedError,
   chatForProvider,
   defaultAiSettings,
-  activeProvider,
   cloudToolsEnabled,
   resolveAiSettings,
   maxOutputTokensOf,
@@ -2631,15 +2631,13 @@ export function registerAiIpc(): void {
     // pre-lock legacy file: genspark selected with cloud tools opted out. The
     // settings UI locks the tools switch on with genspark and apps read this
     // file live, so heal the stored flag once. Judged on the *stored* provider
-    // — never the activeProvider fallback below, which must not leak into the
-    // file and clobber a saved (half-configured) BYOK selection.
+    // so reading settings cannot replace a saved provider selection.
     if ((stored.provider ?? 'genspark') === 'genspark' && stored.gskToolsEnabled === false) {
       stored.gskToolsEnabled = true
       writeJson(SETTINGS_PATH(), stored)
     }
     const settings = resolveAiSettings(stored, defaultAiSettings())
-    // a stored BYOK provider is honored when usable; half-filled configs fall back to genspark
-    settings.provider = activeProvider(settings)
+    // Preserve the saved choice; missing credentials are reported when used.
     settings.userSkills = listUserSkills(app.getPath('userData'))
     return settings
   })
@@ -2660,9 +2658,11 @@ export function registerAiIpc(): void {
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
-    const persisted = { ...settings }
-    delete persisted.userSkills
-    writeJson(SETTINGS_PATH(), persisted)
+    // Normalization excludes runtime-only skill bodies and OAuth credentials.
+    writeJson(SETTINGS_PATH(), resolveAiSettings(settings, defaultAiSettings()))
+    for (const contents of webContents.getAllWebContents()) {
+      if (!contents.isDestroyed()) contents.send('ai:settings-changed')
+    }
   })
 
   ipcMain.handle('ai:open-skills-folder', async () => {
@@ -2685,7 +2685,7 @@ export function registerAiIpc(): void {
     const send = (chunk: AiStreamChunk) => {
       if (!event.sender.isDestroyed()) event.sender.send('ai:stream-chunk', chunk)
     }
-    if (!config?.apiKey) {
+    if (!config || (!config.apiKey && !(provider === 'openai' && config.authMode === 'oauth'))) {
       send({
         requestId,
         type: 'error',
@@ -2832,7 +2832,7 @@ export function registerAiIpc(): void {
     if (provider === 'genspark' && config && !config.apiKey) {
       config = { ...config, apiKey: gskApiKey() }
     }
-    if (!config?.apiKey) {
+    if (!config || (!config.apiKey && !(provider === 'openai' && config.authMode === 'oauth'))) {
       return {
         ok: false,
         error: provider === 'genspark' ? tm('errGskNotLoggedIn') : tm('errNoApiKey', { provider }),

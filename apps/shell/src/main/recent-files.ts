@@ -60,6 +60,12 @@ export function normalizeRecentQuery(
 /** sidebar filter keys that stand for a family of extensions, not one exact ext */
 const EXT_FAMILY: Record<string, readonly string[]> = { xlsx: ['xlsx', 'xlsm'] }
 
+function filterPaths(paths: readonly string[], ext?: string): readonly string[] {
+  if (!ext) return paths
+  const family = EXT_FAMILY[ext] ?? [ext]
+  return paths.filter((path) => family.includes(extname(path).slice(1).toLowerCase()))
+}
+
 /** Page over the recents paths, preserving the source's newest-first order (unavailable paths stay, flagged missing). */
 export function pageRecentPaths(
   paths: readonly string[],
@@ -67,12 +73,31 @@ export function pageRecentPaths(
   starredPaths: ReadonlySet<string>,
 ): RecentPage {
   const { offset, limit, ext } = normalizeRecentQuery(raw)
-  const all = statPathEntries(paths, starredPaths)
-  const family = ext ? (EXT_FAMILY[ext] ?? [ext]) : undefined
-  const filtered = family ? all.filter((entry) => family.includes(entry.ext)) : all
+  // Counts include unavailable files, so only the visible page needs filesystem
+  // metadata. This also keeps sidebar count-only requests off disconnected drives.
+  const filtered = filterPaths(paths, ext)
   return {
-    entries: limit === 0 ? [] : filtered.slice(offset, offset + limit),
+    entries:
+      limit === 0 ? [] : statPathEntries(filtered.slice(offset, offset + limit), starredPaths),
     total: filtered.length,
-    totalAll: all.length,
+    totalAll: paths.length,
+  }
+}
+
+/** Starred pages use the same filters, but sort by file modification time. */
+export function pageStarredPaths(paths: readonly string[], raw: unknown): RecentPage {
+  const { offset, limit, ext } = normalizeRecentQuery(raw)
+  const filtered = filterPaths(paths, ext)
+  // Sorting needs every matching file's metadata, unless no rows are requested.
+  const entries =
+    limit === 0 || offset >= filtered.length
+      ? []
+      : statPathEntries(filtered, new Set(paths))
+          .sort((a, b) => b.mtimeMs - a.mtimeMs)
+          .slice(offset, offset + limit)
+  return {
+    entries,
+    total: filtered.length,
+    totalAll: paths.length,
   }
 }

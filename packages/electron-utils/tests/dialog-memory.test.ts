@@ -17,6 +17,7 @@ function fakeDialog(overrides: Partial<Dialog> = {}): Dialog {
 const pickedOpen = (paths: string[]) =>
   vi.fn().mockResolvedValue({ canceled: false, filePaths: paths })
 const pickedSave = (path: string) => vi.fn().mockResolvedValue({ canceled: false, filePath: path })
+const workDir = join('/work')
 
 describe('showOpenDialogWithMemory', () => {
   it('passes options through unchanged before any pick was made', async () => {
@@ -26,10 +27,10 @@ describe('showOpenDialogWithMemory', () => {
   })
 
   it('remembers the picked directory and injects it as defaultPath next time', async () => {
-    const dialog = fakeDialog({ showOpenDialog: pickedOpen([join('/work', 'report.docx')]) })
+    const dialog = fakeDialog({ showOpenDialog: pickedOpen([join(workDir, 'report.docx')]) })
     await showOpenDialogWithMemory(dialog, undefined, {})
     await showOpenDialogWithMemory(dialog, undefined, {})
-    expect(dialog.showOpenDialog).toHaveBeenLastCalledWith({ defaultPath: '/work' })
+    expect(dialog.showOpenDialog).toHaveBeenLastCalledWith({ defaultPath: workDir })
   })
 
   it('forwards the parent window when given', async () => {
@@ -47,7 +48,7 @@ describe('showOpenDialogWithMemory', () => {
   })
 
   it('keeps an explicit absolute defaultPath untouched', async () => {
-    const dialog = fakeDialog({ showOpenDialog: pickedOpen([join('/work', 'a.docx')]) })
+    const dialog = fakeDialog({ showOpenDialog: pickedOpen([join(workDir, 'a.docx')]) })
     await showOpenDialogWithMemory(dialog, undefined, {})
     await showOpenDialogWithMemory(dialog, undefined, { defaultPath: '/elsewhere/b.docx' })
     expect(dialog.showOpenDialog).toHaveBeenLastCalledWith({ defaultPath: '/elsewhere/b.docx' })
@@ -63,29 +64,29 @@ describe('showOpenDialogWithMemory', () => {
 
 describe('showSaveDialogWithMemory', () => {
   it('anchors a bare file-name suggestion in the remembered directory', async () => {
-    const dialog = fakeDialog({ showSaveDialog: pickedSave(join('/work', 'deck.pptx')) })
+    const dialog = fakeDialog({ showSaveDialog: pickedSave(join(workDir, 'deck.pptx')) })
     await showSaveDialogWithMemory(dialog, undefined, { defaultPath: 'deck.pptx' })
     await showSaveDialogWithMemory(dialog, undefined, { defaultPath: 'deck2.pptx' })
     expect(dialog.showSaveDialog).toHaveBeenLastCalledWith({
-      defaultPath: join('/work', 'deck2.pptx'),
+      defaultPath: join(workDir, 'deck2.pptx'),
     })
   })
 
   it('shares the remembered directory between save and open dialogs', async () => {
-    const dialog = fakeDialog({ showSaveDialog: pickedSave(join('/work', 'deck.pptx')) })
+    const dialog = fakeDialog({ showSaveDialog: pickedSave(join(workDir, 'deck.pptx')) })
     await showSaveDialogWithMemory(dialog, undefined, { defaultPath: 'deck.pptx' })
     await showOpenDialogWithMemory(dialog, undefined, {})
-    expect(dialog.showOpenDialog).toHaveBeenCalledWith({ defaultPath: '/work' })
+    expect(dialog.showOpenDialog).toHaveBeenCalledWith({ defaultPath: workDir })
   })
 
   it('keeps an explicit absolute defaultPath untouched', async () => {
-    const dialog = fakeDialog({ showSaveDialog: pickedSave(join('/work', 'a.pdf')) })
+    const dialog = fakeDialog({ showSaveDialog: pickedSave(join(workDir, 'a.pdf')) })
     await showSaveDialogWithMemory(dialog, undefined, { defaultPath: '/docs/tab.pdf' })
     expect(dialog.showSaveDialog).toHaveBeenCalledWith({ defaultPath: '/docs/tab.pdf' })
   })
 
   it('isolates memory between different dialog instances', async () => {
-    const first = fakeDialog({ showOpenDialog: pickedOpen([join('/work', 'a.docx')]) })
+    const first = fakeDialog({ showOpenDialog: pickedOpen([join(workDir, 'a.docx')]) })
     const second = fakeDialog()
     await showOpenDialogWithMemory(first, undefined, {})
     await showOpenDialogWithMemory(second, undefined, {})
@@ -101,11 +102,11 @@ describe('showSaveDialogWithMemory', () => {
   })
 
   it('prefers the remembered directory over the fallback dir', async () => {
-    const dialog = fakeDialog({ showSaveDialog: pickedSave(join('/work', 'deck.pptx')) })
+    const dialog = fakeDialog({ showSaveDialog: pickedSave(join(workDir, 'deck.pptx')) })
     await showSaveDialogWithMemory(dialog, undefined, { defaultPath: 'deck.pptx' })
     await showSaveDialogWithMemory(dialog, undefined, { defaultPath: 'b.pptx' }, '/default/save')
     expect(dialog.showSaveDialog).toHaveBeenLastCalledWith({
-      defaultPath: join('/work', 'b.pptx'),
+      defaultPath: join(workDir, 'b.pptx'),
     })
   })
 

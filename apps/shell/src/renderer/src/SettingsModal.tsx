@@ -13,6 +13,7 @@ import { useI18n } from './locale'
 import type { StringKey, TFunc } from './locale'
 import type { AccountStatus, AiCatalogEntry, UiTheme } from '../../shared/home-api'
 import { ProviderLogo } from './provider-logos'
+import { AiOAuthPanel } from './AiOAuthPanel'
 import './settings.css'
 
 // ── Settings modal (opened from the account menu) ─────────
@@ -199,7 +200,8 @@ function AiModelPane({ t }: { t: TFunc }) {
     model: meta?.defaultModel ?? '',
   }
   const isGenspark = provider === 'genspark'
-  const isOpenAi56 = provider === 'openai' && /^gpt-5\.6(?:-|$)/.test(config.model)
+  const isOAuth = meta?.supportsOAuth === true && config.authMode === 'oauth'
+  const isOpenAi56 = !isOAuth && provider === 'openai' && /^gpt-5\.6(?:-|$)/.test(config.model)
 
   const touch = () => {
     setDirty(true)
@@ -279,8 +281,29 @@ function AiModelPane({ t }: { t: TFunc }) {
         />
       </div>
       <div className="set-field-desc set-ai-note">
-        {isGenspark ? t('setAiGensparkHint') : t('setAiByokNote')}
+        {isGenspark ? t('setAiGensparkHint') : isOAuth ? t('setAiOAuthHint') : t('setAiByokNote')}
       </div>
+      {meta?.supportsOAuth ? (
+        <div className="set-field">
+          <label className="set-field-label">{t('setAiAuthMethod')}</label>
+          <Dropdown
+            className="set-dd"
+            value={isOAuth ? 'oauth' : 'api-key'}
+            ariaLabel={t('setAiAuthMethod')}
+            options={[
+              { value: 'api-key', label: t('setAiApiKey') },
+              { value: 'oauth', label: 'ChatGPT (OAuth)' },
+            ]}
+            onPick={(value) =>
+              updateConfig({
+                authMode: value === 'oauth' ? 'oauth' : 'api-key',
+                ...(value === 'oauth' ? { apiKey: '', baseUrl: '' } : {}),
+              })
+            }
+          />
+        </div>
+      ) : null}
+      {isOAuth ? <AiOAuthPanel /> : null}
       <div className="set-field">
         <div className="set-field-text">
           <label className="set-field-label">{t('setAiModelId')}</label>
@@ -322,7 +345,7 @@ function AiModelPane({ t }: { t: TFunc }) {
           />
         </div>
       )}
-      {!isGenspark && (
+      {!isGenspark && !isOAuth && (
         <>
           <div className="set-field">
             <div className="set-field-text">
@@ -367,27 +390,29 @@ function AiModelPane({ t }: { t: TFunc }) {
           </div>
         </>
       )}
-      <div className="set-field">
-        <div className="set-field-text">
-          <div className="set-field-stack">
-            <label className="set-field-label" htmlFor="set-ai-max-tokens">
-              {t('setAiMaxTokens')}
-            </label>
-            <div className="set-field-desc">{t('setAiMaxTokensDesc')}</div>
+      {!isOAuth && (
+        <div className="set-field">
+          <div className="set-field-text">
+            <div className="set-field-stack">
+              <label className="set-field-label" htmlFor="set-ai-max-tokens">
+                {t('setAiMaxTokens')}
+              </label>
+              <div className="set-field-desc">{t('setAiMaxTokensDesc')}</div>
+            </div>
           </div>
+          <input
+            id="set-ai-max-tokens"
+            className="set-input"
+            type="number"
+            min={MIN_MAX_OUTPUT_TOKENS}
+            max={MAX_MAX_OUTPUT_TOKENS}
+            step={1024}
+            value={maxTokensDraft ?? String(settings.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS)}
+            onChange={(e) => setMaxTokensDraft(e.target.value)}
+            onBlur={commitMaxTokens}
+          />
         </div>
-        <input
-          id="set-ai-max-tokens"
-          className="set-input"
-          type="number"
-          min={MIN_MAX_OUTPUT_TOKENS}
-          max={MAX_MAX_OUTPUT_TOKENS}
-          step={1024}
-          value={maxTokensDraft ?? String(settings.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS)}
-          onChange={(e) => setMaxTokensDraft(e.target.value)}
-          onBlur={commitMaxTokens}
-        />
-      </div>
+      )}
       <div className="set-field set-ai-rules-field">
         <div className="set-field-text">
           <div className="set-field-stack">
