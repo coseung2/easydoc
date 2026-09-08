@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+ipcRenderer.on('ai:settings-changed', () => window.dispatchEvent(new Event('ai-settings-changed')))
 import type { IpcRendererEvent } from 'electron'
 import type {
   AiChatRequest,

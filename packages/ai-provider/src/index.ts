@@ -4,6 +4,7 @@ export type {
   AiProviderConfig,
   AiProviderId,
   AiProviderMeta,
+  AiOAuthStatus,
   AiSettings,
   AiStreamChunk,
   AiStreamRequest,
@@ -31,6 +32,8 @@ export type {
   ResolvedEndpoint,
 } from './registry'
 export { chatForProvider } from './chat'
+export { setOAuthCredentialResolver } from './runtime-config'
+export { watchAiSettings } from './settings-sync'
 export { setAiUserAgent, setRescueFetch } from './fetch'
 export { isAiNetworkError } from './network-error'
 export { isAiOverloadedError } from './overload-error'

@@ -112,6 +112,36 @@ jobs:
           npm run fixtures -w @genoffice/sheets
           npm run compat -w @genoffice/sheets
 
+  windows-regressions:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check EasyDoc protocol, encryption, and receiver
+        run: |
+          npm run typecheck:easydoc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:easydoc
+
+      - name: Check Windows file handling, OAuth, and shell controls
+        run: |
+          npm run test -w @genoffice/electron-utils
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test -w @genoffice/ai-provider
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test -w @genoffice/shell
+
   e2e:
     # 22.04, not -latest: 24.04's AppArmor hardening blocks Electron renderer
     # spawn under xvfb even with --no-sandbox and the userns sysctl lifted

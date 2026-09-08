@@ -20,7 +20,12 @@ import type {
   TimelineEntryItem,
   UiLanguage,
 } from '../shared/home-api'
-import { EASYDOC_CHANNELS, HOME_CHANNELS, PROJECT_CHANNELS } from '../shared/home-api'
+import {
+  AI_OAUTH_CHANNELS,
+  EASYDOC_CHANNELS,
+  HOME_CHANNELS,
+  PROJECT_CHANNELS,
+} from '../shared/home-api'
 import type { TabsApi, TabSummary } from '../shared/tabs-api'
 import { TABS_CHANNELS } from '../shared/tabs-api'
 
@@ -249,6 +254,11 @@ const homeApi: HomeApi = {
   async getAiSettings() {
     return (await ipcRenderer.invoke('ai:get-settings')) as AiSettings
   },
+  getAiOAuthStatus: () => ipcRenderer.invoke(AI_OAUTH_CHANNELS.status),
+  startAiOAuthLogin: () => ipcRenderer.invoke(AI_OAUTH_CHANNELS.start),
+  cancelAiOAuthLogin: () => ipcRenderer.invoke(AI_OAUTH_CHANNELS.cancel),
+  disconnectAiOAuth: () => ipcRenderer.invoke(AI_OAUTH_CHANNELS.disconnect),
+  openAiOAuthLogin: () => ipcRenderer.invoke(AI_OAUTH_CHANNELS.open),
   async setAiSettings(settings) {
     await ipcRenderer.invoke('ai:set-settings', settings)
   },

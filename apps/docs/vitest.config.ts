@@ -21,5 +21,8 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     environment: 'jsdom',
     testTimeout: 20000,
+    // Each jsdom worker loads the editor; excessive Windows parallelism starves
+    // the real 100,000-round WebCrypto password tests and exhausts their timeout.
+    ...(process.platform === 'win32' ? { maxWorkers: 4 } : {}),
   },
 })

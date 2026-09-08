@@ -1,10 +1,12 @@
 import type { AgentMessage, AgentToolDef } from '@genoffice/agent-core'
 import { withOutputCapFallback } from './output-cap'
 import { streamAnthropic } from './protocols/anthropic'
+import { streamCodex } from './protocols/codex'
 import { streamGemini } from './protocols/gemini'
 import { streamOpenAiCompatible } from './protocols/openai-compatible'
 import type { StreamCallbacks } from './protocols/shared'
 import { getProviderAdapter } from './registry'
+import { runtimeAiConfig } from './runtime-config'
 import type { AiProviderConfig, AiProviderId } from './types'
 
 export { streamAnthropic } from './protocols/anthropic'
@@ -23,6 +25,11 @@ export async function streamForProvider(
   maxTokens: number,
   cb: StreamCallbacks,
 ): Promise<void> {
+  const runtime = await runtimeAiConfig(provider, config, cb.signal)
+  if (provider === 'openai' && runtime.authMode === 'oauth') {
+    return streamCodex(runtime, system, messages, tools, cb)
+  }
+  config = runtime
   const endpoint = getProviderAdapter(provider).resolveEndpoint(config)
   const { baseUrl } = endpoint
   return withOutputCapFallback(baseUrl, config.model, maxTokens, (cap) => {

@@ -1,14 +1,27 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   configuredDefaultSaveDir,
   readDefaultSaveDirSetting,
   resolveDefaultSaveDir,
 } from '../src/index'
+
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>()
+  return { ...fs, accessSync: vi.fn(fs.accessSync) }
+})
 
 let root: string
 
@@ -17,6 +30,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.mocked(accessSync).mockReset()
   rmSync(root, { recursive: true, force: true })
 })
 
@@ -61,13 +75,14 @@ describe('resolveDefaultSaveDir', () => {
   it('degrades to the fallback when the configured folder is not writable', () => {
     const readOnly = join(root, 'read-only')
     mkdirSync(readOnly)
-    chmodSync(readOnly, 0o500)
+    // chmod does not revoke Windows write access and can be bypassed by privileged users.
+    vi.mocked(accessSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+    })
     const fallback = join(root, 'fallback')
-    try {
-      expect(resolveDefaultSaveDir(readOnly, fallback)).toBe(fallback)
-    } finally {
-      chmodSync(readOnly, 0o700)
-    }
+    expect(resolveDefaultSaveDir(readOnly, fallback)).toBe(fallback)
+    expect(accessSync).toHaveBeenCalledExactlyOnceWith(readOnly, constants.W_OK)
+    expect(existsSync(fallback)).toBe(true)
   })
 })
 

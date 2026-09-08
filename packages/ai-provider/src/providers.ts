@@ -82,10 +82,19 @@ export const AI_PROVIDERS: AiProviderMeta[] = [
   {
     id: 'openai',
     label: 'OpenAI',
+    supportsOAuth: true,
     // GPT-5.6 naming: sol is the flagship (the bare `gpt-5.6` alias resolves to
     // it, but spell it out so the picker says which tier it is), terra balances
     // cost/intelligence, luna is the high-volume tier (2026-08)
-    models: ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
+    models: [
+      'gpt-6-astra',
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.5',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+    ],
     defaultModel: 'gpt-5.6-terra',
     keyPlaceholder: 'sk-...',
   },
@@ -258,6 +267,7 @@ export function activeProvider(settings: AiSettings): AiProviderId {
   const meta = AI_PROVIDERS.find((m) => m.id === provider)
   const config = settings.providers?.[provider]
   if (!meta || !config?.model) return 'genspark'
+  if (meta.supportsOAuth && config.authMode === 'oauth') return provider
   if (meta.needsBaseUrl) {
     // Custom OpenAI-compatible endpoints (Ollama, LM Studio, vLLM) accept
     // anonymous requests: base URL + model suffice, the key stays optional.
@@ -321,13 +331,27 @@ export function maxOutputTokensOf(
 
 /** pasted keys/URLs/model ids often carry stray whitespace, which turns into a 401 with a valid key */
 function trimConfigs(providers: AiSettings['providers']): AiSettings['providers'] {
-  const trimmed = { ...providers }
-  for (const [id, config] of Object.entries(trimmed)) {
-    trimmed[id as AiProviderId] = {
-      ...config,
-      apiKey: config.apiKey?.trim() ?? '',
-      model: config.model?.trim() ?? '',
-      ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl.trim() } : {}),
+  const trimmed = {} as AiSettings['providers']
+  for (const meta of AI_PROVIDERS) {
+    const config = providers[meta.id]
+    // A saved OpenAI choice without a key predates the auth-mode selector.
+    // Keep it on the account-login route instead of silently changing providers.
+    const oauth =
+      meta.supportsOAuth &&
+      (config?.authMode === 'oauth' ||
+        (config?.authMode === undefined &&
+          !(typeof config?.apiKey === 'string' && config.apiKey.trim()) &&
+          !(typeof config?.baseUrl === 'string' && config.baseUrl.trim())))
+    trimmed[meta.id] = {
+      // Settings are public: accept only known fields, never runtime credentials.
+      apiKey: oauth ? '' : typeof config?.apiKey === 'string' ? config.apiKey.trim() : '',
+      model: typeof config?.model === 'string' ? config.model.trim() : meta.defaultModel,
+      ...(oauth
+        ? { authMode: 'oauth' as const }
+        : {
+            ...(config?.authMode === 'api-key' ? { authMode: 'api-key' as const } : {}),
+            ...(typeof config?.baseUrl === 'string' ? { baseUrl: config.baseUrl.trim() } : {}),
+          }),
     }
   }
   return trimmed

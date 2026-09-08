@@ -6,7 +6,16 @@ export default defineConfig({
   // Bundle everything into the shell main (same policy as apps/docs): the
   // imported docs/sheets main modules are TS source with no build artifacts,
   // so externalizing them would break Node ESM resolution at runtime.
-  main: {},
+  main: {
+    build: {
+      rollupOptions: {
+        // Keep ws's optional native accelerators inside its guarded require calls.
+        // Vite's dev-mode missing-peer stubs throw at module load before ws can
+        // fall back to its JavaScript implementation.
+        external: ['bufferutil', 'utf-8-validate'],
+      },
+    },
+  },
   preload: {
     build: {
       rollupOptions: {

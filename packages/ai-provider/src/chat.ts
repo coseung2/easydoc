@@ -1,7 +1,9 @@
 import { chatAnthropic } from './protocols/anthropic'
+import { chatCodex } from './protocols/codex'
 import { chatGemini } from './protocols/gemini'
 import { chatOpenAiCompatible } from './protocols/openai-compatible'
 import { getProviderAdapter, type ResolvedEndpoint } from './registry'
+import { runtimeAiConfig, type RuntimeAiConfig } from './runtime-config'
 import type { AiChatResponse, AiProviderConfig, AiProviderId } from './types'
 import { AI_CHAT_RESPONSE_TIMEOUT_MS, createStreamWatchdog } from './watchdog'
 
@@ -13,6 +15,17 @@ export async function chatForProvider(
   user: string,
   signal?: AbortSignal,
 ): Promise<AiChatResponse> {
+  let runtime: RuntimeAiConfig
+  try {
+    runtime = await runtimeAiConfig(provider, config, signal)
+  } catch (error) {
+    if (signal?.aborted) throw error
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+  if (provider === 'openai' && runtime.authMode === 'oauth') {
+    return chatCodex(runtime, system, user, signal)
+  }
+  config = runtime
   // non-streaming: the server generates the full answer before the headers arrive,
   // so the connect phase gets the long budget; the body read then gets the idle budget
   const wd = createStreamWatchdog(signal, AI_CHAT_RESPONSE_TIMEOUT_MS)

@@ -133,6 +133,7 @@ import {
   type AgentImage,
 } from '@genoffice/agent-core'
 import type { AiSettings } from '@genoffice/ai-provider'
+import { watchAiSettings } from '@genoffice/ai-provider'
 import {
   copyTargetBounds,
   filteredCopySourceRows,
@@ -1277,7 +1278,11 @@ export function App(): React.JSX.Element {
     // Genspark's key never lands in the settings file; the main process injects
     // it from the gsk login state. When logged out, requests return an error
     // guiding sign-in — not intercepted here.
-    return settings.provider === 'genspark' || !!config.apiKey
+    return (
+      settings.provider === 'genspark' ||
+      !!config.apiKey ||
+      (settings.provider === 'openai' && config.authMode === 'oauth')
+    )
   }
 
   /** Image attachments read as base64 and sent multimodal with this user message
@@ -1440,7 +1445,7 @@ export function App(): React.JSX.Element {
   }
 
   useEffect(() => {
-    void window.desktopApi.getAiSettings().then(setAiSettingsState)
+    return watchAiSettings(() => window.desktopApi.getAiSettings(), setAiSettingsState)
   }, [])
 
   useEffect(() => {

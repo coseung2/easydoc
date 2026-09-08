@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -15,6 +15,11 @@ import {
 } from '../src/genoffice-auth'
 import { gskApiKey, setGskProxyUrl } from '../src/gsk'
 
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>()
+  return { ...fs, writeFileSync: vi.fn(fs.writeFileSync) }
+})
+
 const CODE = 'a'.repeat(64)
 const AUTH_URL = `https://www.genspark.ai/api/office_addin_auth/verify?code=${CODE}`
 
@@ -28,6 +33,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.mocked(writeFileSync).mockClear()
   vi.unstubAllGlobals()
   rmSync(dir, { recursive: true, force: true })
   delete process.env.GENOFFICE_AUTH_DIR
@@ -109,7 +115,15 @@ describe('startGenofficeLogin', () => {
       key_id: 'kid-1',
       access_token: 'bearer-token',
     })
-    expect(statSync(genofficeAuthPath()).mode & 0o777).toBe(0o600)
+    expect(writeFileSync).toHaveBeenCalledWith(
+      genofficeAuthPath(),
+      expect.any(String),
+      expect.objectContaining({ mode: 0o600 }),
+    )
+    // Windows does not represent POSIX owner/group mode bits in stat().
+    if (process.platform !== 'win32') {
+      expect(statSync(genofficeAuthPath()).mode & 0o777).toBe(0o600)
+    }
     expect(genofficeApiKey()).toBe('gsk-genoffice-key')
     expect(genofficeLoginInFlight()).toBe(false)
 

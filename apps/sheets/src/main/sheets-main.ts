@@ -24,6 +24,7 @@ import {
   screen,
   session as electronSession,
   shell,
+  webContents,
   systemPreferences,
   WebContentsView,
 } from 'electron'
@@ -60,7 +61,6 @@ import {
   isAiOverloadedError,
   chatForProvider,
   defaultAiSettings,
-  activeProvider,
   cloudToolsEnabled,
   maxOutputTokensOf,
   resolveAiSettings,
@@ -3037,8 +3037,7 @@ export function registerSheetsAiIpc(): void {
     sessionFor(event)
     const stored = readJson<Partial<AiSettings> & LegacyAiSettings>(SETTINGS_PATH(), {})
     const settings = resolveAiSettings(stored, defaultAiSettings())
-    // a stored BYOK provider is honored when usable; half-filled configs fall back to genspark
-    settings.provider = activeProvider(settings)
+    // Preserve the saved choice; missing credentials are reported when used.
     return settings
   })
 
@@ -3061,7 +3060,13 @@ export function registerSheetsAiIpc(): void {
   ipcMain.handle(IPC_CHANNELS.aiSetSettings, (event, input: unknown) => {
     sessionFor(event)
     const settings = aiSettingsInputSchema.parse(input)
-    writeJson(SETTINGS_PATH(), settings)
+    writeJson(
+      SETTINGS_PATH(),
+      resolveAiSettings(settings as Partial<AiSettings>, defaultAiSettings()),
+    )
+    for (const contents of webContents.getAllWebContents()) {
+      if (!contents.isDestroyed()) contents.send('ai:settings-changed')
+    }
   })
 
   ipcMain.handle(IPC_CHANNELS.aiChat, async (event, input: unknown) => {
@@ -3072,7 +3077,7 @@ export function registerSheetsAiIpc(): void {
     if (provider === 'genspark' && config && !config.apiKey) {
       config = { ...config, apiKey: gskApiKey() }
     }
-    if (!config?.apiKey) {
+    if (!config || (!config.apiKey && !(provider === 'openai' && config.authMode === 'oauth'))) {
       return {
         ok: false,
         error: provider === 'genspark' ? tm('errGskNotLoggedIn') : tm('errNoApiKey', { provider }),
@@ -3108,7 +3113,7 @@ export function registerSheetsAiIpc(): void {
     const send = (chunk: AiStreamChunk) => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.aiStreamChunk, chunk)
     }
-    if (!config?.apiKey) {
+    if (!config || (!config.apiKey && !(provider === 'openai' && config.authMode === 'oauth'))) {
       send({
         requestId,
         type: 'error',

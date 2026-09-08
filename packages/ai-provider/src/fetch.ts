@@ -50,7 +50,8 @@ export async function aiFetch(url: string, rawInit: RequestInit): Promise<Respon
   } catch (primaryError) {
     const signal = init.signal as AbortSignal | null | undefined
     if (!rescueFetch || signal?.aborted) throw primaryError
-    console.warn('[ai-provider] fetch failed, retrying via rescue fetch:', String(primaryError))
+    // Fetch errors may echo request credentials. Keep diagnostics free of raw exceptions.
+    console.warn('[ai-provider] fetch failed, retrying via rescue fetch')
     try {
       return await rescueFetch(url, init)
     } catch {

@@ -27,6 +27,8 @@ export interface GenSparkAccountStatus {
 export interface AiProviderConfig {
   apiKey: string
   model: string
+  /** OpenAI can use the ChatGPT account held privately by the main process. */
+  authMode?: 'api-key' | 'oauth' | undefined
   /** required for custom; for other direct providers it overrides the default endpoint (regional mirrors) */
   baseUrl?: string | undefined
 }
@@ -38,6 +40,15 @@ export interface AiProviderMeta {
   defaultModel: string
   keyPlaceholder: string
   needsBaseUrl?: boolean
+  supportsOAuth?: boolean
+}
+
+/** Public account state only; credentials never cross IPC. */
+export interface AiOAuthStatus {
+  state: 'disconnected' | 'pending' | 'connected' | 'error'
+  authorizationUrl?: string
+  expiresAt?: number
+  error?: string
 }
 
 export interface AiSettings {
