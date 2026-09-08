@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
-import { AgentLoop } from '@genoffice/agent-core'
+import { AgentLoop, composeSkills, createUserSkillsSkill } from '@genoffice/agent-core'
 import { aiRulesDirective, type AiSettings } from '@genoffice/ai-provider'
 import { AiComposer, AiTypingIndicator } from '@genoffice/ui'
 import { aiLangDirective, t as tGlobal, useI18n } from '../i18n/locale'
@@ -373,7 +373,10 @@ export function AiPanel({
     }
     loopRef.current = new AgentLoop({
       transport: createElectronTransport(() => settingsRef.current!),
-      skill: createPdfSkill(deps),
+      skill: composeSkills('pdf+user-skills', '', [
+        createPdfSkill(deps),
+        createUserSkillsSkill('pdf', () => settingsRef.current?.userSkills),
+      ]),
       systemSuffix: () => aiLangDirective(langRef.current) + aiRulesDirective(settingsRef.current),
       events: {
         onText: (text) => {

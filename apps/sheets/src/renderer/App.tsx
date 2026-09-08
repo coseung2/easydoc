@@ -130,6 +130,7 @@ import {
   AgentLoop,
   COMPLETED_VIA_TOOLS_TEXT,
   composeSkills,
+  createUserSkillsSkill,
   type AgentImage,
 } from '@genoffice/agent-core'
 import { aiRulesDirective, type AiSettings } from '@genoffice/ai-provider'
@@ -1111,6 +1112,7 @@ export function App(): React.JSX.Element {
         createImageSkill(
           () => gskLoggedInRef.current && aiSettingsRef.current?.gskToolsEnabled !== false,
         ),
+        createUserSkillsSkill('sheets', () => aiSettingsRef.current?.userSkills),
       ]),
       events: {
         onText: (text) => {

@@ -252,6 +252,9 @@ const homeApi: HomeApi = {
   async setAiSettings(settings) {
     await ipcRenderer.invoke('ai:set-settings', settings)
   },
+  async openAiSkillsFolder() {
+    return (await ipcRenderer.invoke('ai:open-skills-folder')) as string
+  },
   getAiProviders() {
     return AI_PROVIDERS.map((meta) => {
       let defaultBaseUrl = ''

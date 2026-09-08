@@ -35,7 +35,7 @@ import {
   type GenSparkAccountStatus,
   type LegacyAiSettings,
 } from '@genoffice/ai-provider'
-import { fetchRemoteImage } from '@genoffice/electron-utils'
+import { fetchRemoteImage, listUserSkills } from '@genoffice/electron-utils'
 import {
   webSearch,
   imageSearch,
@@ -116,6 +116,7 @@ export function registerAiIpc(): void {
     const settings = resolveAiSettings(stored, defaultAiSettings())
     // a stored BYOK provider is honored when usable; half-filled configs fall back to genspark
     settings.provider = activeProvider(settings)
+    settings.userSkills = listUserSkills(app.getPath('userData'))
     return settings
   })
 
@@ -135,7 +136,9 @@ export function registerAiIpc(): void {
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
-    writeJson(AI_SETTINGS_PATH(), settings)
+    const persisted = { ...settings }
+    delete persisted.userSkills
+    writeJson(AI_SETTINGS_PATH(), persisted)
   })
 
   ipcMain.handle('ai:log-run-failure', (_event, entry: AiRunFailure) => {

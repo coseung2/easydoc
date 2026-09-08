@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import {
   AgentLoop,
   composeSkills,
+  createUserSkillsSkill,
   IPC_STREAM_SILENCE_TIMEOUT_MS,
   type AgentImage,
   type ToolDisplay,
@@ -1328,6 +1329,7 @@ export function AiPanel({
       skill: composeSkills('slides+files', '', [
         createSlidesSkill(access),
         createFilesSkill(availableAttachments, (path) => readAttachmentPathsRef.current.add(path)),
+        createUserSkillsSkill('slides', () => settingsRef.current?.userSkills),
       ]),
       events: {
         onText: (text) => {

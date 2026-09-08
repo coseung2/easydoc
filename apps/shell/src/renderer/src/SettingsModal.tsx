@@ -412,6 +412,25 @@ function AiModelPane({ t }: { t: TFunc }) {
       <div className="set-field">
         <div className="set-field-text">
           <div className="set-field-stack">
+            <div className="set-field-label">{t('setAiSkills')}</div>
+            <div className="set-field-desc">{t('setAiSkillsDesc')}</div>
+          </div>
+        </div>
+        <button
+          className="set-btn"
+          type="button"
+          onClick={() => {
+            window.aiOffice.openAiSkillsFolder().catch((error) => {
+              window.alert(error instanceof Error ? error.message : String(error))
+            })
+          }}
+        >
+          {t('setAiSkillsOpen')}
+        </button>
+      </div>
+      <div className="set-field">
+        <div className="set-field-text">
+          <div className="set-field-stack">
             <div className="set-field-label">{t('setAiGskTools')}</div>
             <div className="set-field-desc">{t('setAiGskToolsDesc')}</div>
           </div>

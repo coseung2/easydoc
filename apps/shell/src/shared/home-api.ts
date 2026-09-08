@@ -196,6 +196,8 @@ export interface HomeApi {
   getAiSettings(): Promise<AiSettings>
   /** persist AI settings; open editors pick the change up on their next settings read */
   setAiSettings(settings: AiSettings): Promise<void>
+  /** open userData/agent-skills so the user can add/edit SKILL.md workflows */
+  openAiSkillsFolder(): Promise<string>
   /** provider catalog with each fixed endpoint's default base URL (empty for genspark/custom) */
   getAiProviders(): AiCatalogEntry[]
   /** one-shot round trip against the given (possibly unsaved) settings — the settings-UI connection test */

@@ -2375,6 +2375,19 @@ export type WorkbookConditionalRule = z.infer<typeof conditionalRuleSchema>
 // site, which always has exactly the 5 known provider keys once merged through
 // resolveAiSettings/defaultAiSettings. ----
 
+const aiUserSkillSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    name: z.string().min(1).max(256),
+    description: z.string().max(1000),
+    content: z.string().max(64_000),
+    apps: z
+      .array(z.enum(['docs', 'sheets', 'slides', 'pdf', 'markdown']))
+      .max(5)
+      .optional(),
+  })
+  .strict()
+
 const aiProviderConfigSchema = z
   .object({
     apiKey: z.string(),
@@ -2388,6 +2401,7 @@ export const aiSettingsInputSchema = z
   .object({
     provider: z.string().min(1),
     providers: z.record(z.string(), aiProviderConfigSchema),
+    userSkills: z.array(aiUserSkillSchema).max(50).optional(),
     aiRules: z.string().max(MAX_AI_RULES_CHARS).optional(),
     gskToolsEnabled: z.boolean().optional(),
     // bounds are enforced by clampMaxOutputTokens on read; the schema only

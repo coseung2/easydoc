@@ -1,4 +1,9 @@
-import type { AgentMessage, AgentToolCall, AgentToolDef } from '@genoffice/agent-core'
+import type {
+  AgentMessage,
+  AgentToolCall,
+  AgentToolDef,
+  UserSkillDefinition,
+} from '@genoffice/agent-core'
 
 export type AiProviderId =
   | 'genspark'
@@ -47,6 +52,8 @@ export interface AiProviderMeta {
 export interface AiSettings {
   provider: AiProviderId
   providers: Record<AiProviderId, AiProviderConfig>
+  /** Runtime-only user SKILL.md catalog/content. Main processes populate it on read and strip it before persistence. */
+  userSkills?: UserSkillDefinition[]
   /** Persistent user-authored instructions appended to every user-facing office agent prompt. */
   aiRules?: string | undefined
   /**

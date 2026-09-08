@@ -42,6 +42,7 @@ import {
   contextMenuLabels,
   fetchRemoteImage,
   installContextMenu,
+  listUserSkills,
   installNavigationGuard,
   printHtmlToPdf,
   safeExternalUrl,
@@ -3039,6 +3040,7 @@ export function registerSheetsAiIpc(): void {
     const settings = resolveAiSettings(stored, defaultAiSettings())
     // a stored BYOK provider is honored when usable; half-filled configs fall back to genspark
     settings.provider = activeProvider(settings)
+    settings.userSkills = listUserSkills(app.getPath('userData'))
     return settings
   })
 
@@ -3061,7 +3063,9 @@ export function registerSheetsAiIpc(): void {
   ipcMain.handle(IPC_CHANNELS.aiSetSettings, (event, input: unknown) => {
     sessionFor(event)
     const settings = aiSettingsInputSchema.parse(input)
-    writeJson(SETTINGS_PATH(), settings)
+    const persisted = { ...settings }
+    delete persisted.userSkills
+    writeJson(SETTINGS_PATH(), persisted)
   })
 
   ipcMain.handle(IPC_CHANNELS.aiChat, async (event, input: unknown) => {

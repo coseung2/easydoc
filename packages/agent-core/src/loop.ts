@@ -290,6 +290,7 @@ export class AgentLoop<TSnapshot = unknown> {
     this.executedCalls = []
     this.verifyRetryUsed = false
     this.abortController = new AbortController()
+    this.options.skill.prepareRun?.(instruction)
     const context = this.options.skill.buildContext?.() ?? ''
     const format =
       this.options.formatUserMessage ??

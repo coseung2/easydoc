@@ -41,6 +41,15 @@ export {
 } from './safe-remote-url'
 export { fetchRemoteImage, remoteImageHeaders } from './remote-image'
 export {
+  ensureUserSkillsDir,
+  listUserSkills,
+  MAX_USER_SKILL_FILE_CHARS,
+  MAX_USER_SKILLS,
+  USER_SKILLS_DIRNAME,
+  type StoredUserSkill,
+  type StoredUserSkillApp,
+} from './user-skills'
+export {
   buildPrintableHtml,
   printHtmlToPdf,
   sanitizePrintableBody,

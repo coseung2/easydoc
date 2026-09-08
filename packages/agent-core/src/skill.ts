@@ -18,6 +18,12 @@ export interface AgentSkill {
   systemPrompt: string
   tools: AgentToolDef[]
   /**
+   * Called at the start of each user run before buildContext. Skills can use
+   * this to resolve instruction-scoped state (for example explicit @skill
+   * mentions) without changing the user's visible instruction.
+   */
+  prepareRun?(instruction: string): void
+  /**
    * Fresh context sections attached to every user turn (e.g. document
    * skeleton + selection). Return '' when there is nothing to attach.
    */
@@ -63,6 +69,9 @@ export function composeSkills(id: string, intro: string, skills: AgentSkill[]): 
         seen.add(tool.name)
       }
       return all
+    },
+    prepareRun: (instruction) => {
+      for (const skill of skills) skill.prepareRun?.(instruction)
     },
     buildContext: () =>
       skills

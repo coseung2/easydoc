@@ -13,6 +13,8 @@ export type {
 } from './types'
 export { composeSkills } from './skill'
 export type { AgentSkill, ExecutedToolCall } from './skill'
+export { createUserSkillsSkill } from './user-skills'
+export type { UserSkillApp, UserSkillDefinition } from './user-skills'
 export {
   AgentLoop,
   COMPLETED_VIA_TOOLS_TEXT,

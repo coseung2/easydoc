@@ -173,6 +173,9 @@ export const strings = {
       '仅适用于 OpenAI GPT-5.6 直连。更高的强度通常有助于复杂任务，但会增加延迟和 token 消耗。',
     setAiRules: 'AI 规则',
     setAiRulesDesc: '始终应用于文档、表格、幻灯片、PDF 和 Markdown AI 的个人指令。',
+    setAiSkills: 'AI 技能',
+    setAiSkillsDesc: '用 SKILL.md 添加可自动调用或通过 @技能ID 指定的工作流。',
+    setAiSkillsOpen: '打开技能文件夹',
     setAiGskTools: 'Genspark 云工具',
     setAiGskToolsDesc:
       '网页搜索、AI 生图、媒体分析经 Genspark 云端并消耗积分；关闭后生图与媒体分析不可用，搜索改用免费来源。',
@@ -385,6 +388,10 @@ export const strings = {
     setAiRules: 'AI Rules',
     setAiRulesDesc:
       'Persistent personal instructions applied to Docs, Sheets, Slides, PDF, and Markdown AI.',
+    setAiSkills: 'AI Skills',
+    setAiSkillsDesc:
+      'Add SKILL.md workflows that the AI can load automatically or you can force with @skill-id.',
+    setAiSkillsOpen: 'Open skills folder',
     setAiGskTools: 'Genspark cloud tools',
     setAiGskToolsDesc:
       'Web search, AI image generation and media analysis run through Genspark and use credits; when off, image tools are unavailable and search uses free sources.',
@@ -611,6 +618,9 @@ export const strings = {
       'OpenAI GPT-5.6 の直接接続時のみ。高くすると複雑なタスクの品質が向上しやすい一方、遅延とトークン消費が増えます。',
     setAiRules: 'AI ルール',
     setAiRulesDesc: 'Docs、Sheets、Slides、PDF、Markdown の AI に常に適用する個人指示です。',
+    setAiSkills: 'AI スキル',
+    setAiSkillsDesc: 'SKILL.md を追加すると、AI が自動読込または @スキルID で指定できます。',
+    setAiSkillsOpen: 'スキルフォルダーを開く',
     setAiGskTools: 'Genspark クラウドツール',
     setAiGskToolsDesc:
       'ウェブ検索・AI 画像生成・メディア分析は Genspark クラウド経由でクレジットを消費します。オフにすると画像ツールは使えず、検索は無料ソースを使用します。',
@@ -834,6 +844,10 @@ export const strings = {
       'OpenAI GPT-5.6 직접 연결에만 적용됩니다. 높일수록 복잡한 작업 품질이 좋아질 수 있지만 지연과 토큰 사용량이 늘어납니다.',
     setAiRules: 'AI 규칙',
     setAiRulesDesc: '문서·시트·슬라이드·PDF·Markdown AI에 항상 적용되는 개인 지침입니다.',
+    setAiSkills: 'AI 스킬',
+    setAiSkillsDesc:
+      'SKILL.md 워크플로를 추가하면 AI가 자동으로 불러오거나 @스킬ID로 직접 지정할 수 있습니다.',
+    setAiSkillsOpen: '스킬 폴더 열기',
     setAiGskTools: 'Genspark 클라우드 도구',
     setAiGskToolsDesc:
       '웹 검색·AI 이미지 생성·미디어 분석은 Genspark 클라우드를 거치며 크레딧을 사용합니다. 끄면 이미지 도구를 사용할 수 없고 검색은 무료 소스를 사용합니다.',
@@ -1064,6 +1078,10 @@ export const strings = {
     setAiRules: 'Règles IA',
     setAiRulesDesc:
       'Instructions personnelles persistantes appliquées à Docs, Sheets, Slides, PDF et Markdown.',
+    setAiSkills: 'Compétences IA',
+    setAiSkillsDesc:
+      'Ajoutez des workflows SKILL.md chargés automatiquement ou explicitement avec @id-skill.',
+    setAiSkillsOpen: 'Ouvrir le dossier des compétences',
     setAiGskTools: 'Outils cloud Genspark',
     setAiGskToolsDesc:
       "Recherche web, génération d'images et analyse de médias passent par Genspark et consomment des crédits ; désactivé, les outils d'image sont indisponibles et la recherche utilise des sources gratuites.",
@@ -1296,6 +1314,10 @@ export const strings = {
     setAiRules: 'KI-Regeln',
     setAiRulesDesc:
       'Dauerhafte persönliche Anweisungen für Docs, Sheets, Slides, PDF und Markdown.',
+    setAiSkills: 'KI-Skills',
+    setAiSkillsDesc:
+      'SKILL.md-Workflows hinzufügen, die automatisch oder per @skill-id geladen werden können.',
+    setAiSkillsOpen: 'Skills-Ordner öffnen',
     setAiGskTools: 'Genspark-Cloud-Tools',
     setAiGskToolsDesc:
       'Websuche, KI-Bilderzeugung und Medienanalyse laufen über Genspark und verbrauchen Guthaben; ausgeschaltet sind Bildtools nicht verfügbar und die Suche nutzt freie Quellen.',
@@ -1526,6 +1548,10 @@ export const strings = {
     setAiRules: 'Reglas de IA',
     setAiRulesDesc:
       'Instrucciones personales persistentes para Docs, Sheets, Slides, PDF y Markdown.',
+    setAiSkills: 'Habilidades de IA',
+    setAiSkillsDesc:
+      'Añade flujos SKILL.md que la IA puede cargar automáticamente o mediante @id-skill.',
+    setAiSkillsOpen: 'Abrir carpeta de habilidades',
     setAiGskTools: 'Herramientas en la nube de Genspark',
     setAiGskToolsDesc:
       'La búsqueda web, la generación de imágenes y el análisis de medios pasan por Genspark y consumen créditos; desactivado, las herramientas de imagen no están disponibles y la búsqueda usa fuentes gratuitas.',
@@ -1749,6 +1775,9 @@ export const strings = {
       'ใช้เฉพาะ OpenAI GPT-5.6 แบบเชื่อมต่อโดยตรง ระดับที่สูงขึ้นอาจช่วยงานซับซ้อน แต่เพิ่มเวลาและการใช้โทเคน',
     setAiRules: 'กฎ AI',
     setAiRulesDesc: 'คำสั่งส่วนตัวถาวรที่ใช้กับ Docs, Sheets, Slides, PDF และ Markdown AI',
+    setAiSkills: 'สกิล AI',
+    setAiSkillsDesc: 'เพิ่มเวิร์กโฟลว์ SKILL.md ที่ AI โหลดอัตโนมัติหรือเรียกด้วย @skill-id ได้',
+    setAiSkillsOpen: 'เปิดโฟลเดอร์สกิล',
     setAiGskTools: 'เครื่องมือคลาวด์ Genspark',
     setAiGskToolsDesc:
       'ค้นเว็บ สร้างภาพ AI และวิเคราะห์สื่อผ่านคลาวด์ Genspark และใช้เครดิต ปิดแล้วเครื่องมือภาพจะใช้ไม่ได้ และการค้นหาใช้แหล่งฟรี',
@@ -1974,6 +2003,10 @@ export const strings = {
     setAiRules: 'Aturan AI',
     setAiRulesDesc:
       'Instruksi pribadi tetap yang diterapkan ke AI Docs, Sheets, Slides, PDF, dan Markdown.',
+    setAiSkills: 'Skill AI',
+    setAiSkillsDesc:
+      'Tambahkan workflow SKILL.md yang dapat dimuat otomatis atau dipanggil dengan @skill-id.',
+    setAiSkillsOpen: 'Buka folder skill',
     setAiGskTools: 'Alat cloud Genspark',
     setAiGskToolsDesc:
       'Pencarian web, pembuatan gambar AI, dan analisis media berjalan lewat Genspark dan memakai kredit; jika dimatikan, alat gambar tidak tersedia dan pencarian memakai sumber gratis.',
@@ -2199,6 +2232,10 @@ export const strings = {
       'Только для прямого OpenAI GPT-5.6. Более высокий уровень может улучшить сложные задачи, но увеличивает задержку и расход токенов.',
     setAiRules: 'Правила ИИ',
     setAiRulesDesc: 'Постоянные личные инструкции для ИИ в Docs, Sheets, Slides, PDF и Markdown.',
+    setAiSkills: 'Навыки ИИ',
+    setAiSkillsDesc:
+      'Добавляйте сценарии SKILL.md для автозагрузки или явного вызова через @skill-id.',
+    setAiSkillsOpen: 'Открыть папку навыков',
     setAiGskTools: 'Облачные инструменты Genspark',
     setAiGskToolsDesc:
       'Веб-поиск, генерация изображений и анализ медиа идут через Genspark и расходуют кредиты; при отключении инструменты изображений недоступны, а поиск использует бесплатные источники.',
@@ -2422,6 +2459,9 @@ export const strings = {
       'لـ OpenAI GPT-5.6 المباشر فقط. قد يحسن المستوى الأعلى المهام المعقدة، لكنه يزيد زمن الاستجابة واستهلاك الرموز.',
     setAiRules: 'قواعد الذكاء الاصطناعي',
     setAiRulesDesc: 'تعليمات شخصية دائمة تُطبّق على ذكاء Docs وSheets وSlides وPDF وMarkdown.',
+    setAiSkills: 'مهارات الذكاء الاصطناعي',
+    setAiSkillsDesc: 'أضف مهام SKILL.md ليحمّلها الذكاء تلقائيًا أو استدعها عبر @skill-id.',
+    setAiSkillsOpen: 'فتح مجلد المهارات',
     setAiGskTools: 'أدوات Genspark السحابية',
     setAiGskToolsDesc:
       'يمر بحث الويب وتوليد الصور وتحليل الوسائط عبر سحابة Genspark ويستهلك الرصيد؛ عند الإيقاف تصبح أدوات الصور غير متاحة ويستخدم البحث مصادر مجانية.',
@@ -2640,6 +2680,10 @@ export const strings = {
     setAiRules: 'Regras de IA',
     setAiRulesDesc:
       'Instruções pessoais persistentes aplicadas à IA de Docs, Sheets, Slides, PDF e Markdown.',
+    setAiSkills: 'Habilidades de IA',
+    setAiSkillsDesc:
+      'Adicione fluxos SKILL.md carregados automaticamente ou chamados com @skill-id.',
+    setAiSkillsOpen: 'Abrir pasta de habilidades',
     setAiGskTools: 'Ferramentas na nuvem Genspark',
     setAiGskToolsDesc:
       'Busca na web, geração de imagens e análise de mídia passam pela Genspark e consomem créditos; desligado, as ferramentas de imagem ficam indisponíveis e a busca usa fontes gratuitas.',
@@ -2858,6 +2902,10 @@ export const strings = {
     setAiRules: 'Regole IA',
     setAiRulesDesc:
       'Istruzioni personali persistenti applicate all’IA di Docs, Sheets, Slides, PDF e Markdown.',
+    setAiSkills: 'Skill IA',
+    setAiSkillsDesc:
+      'Aggiungi workflow SKILL.md caricabili automaticamente o richiamabili con @skill-id.',
+    setAiSkillsOpen: 'Apri cartella skill',
     setAiGskTools: 'Strumenti cloud Genspark',
     setAiGskToolsDesc:
       'Ricerca web, generazione di immagini e analisi dei media passano da Genspark e consumano crediti; se disattivato, gli strumenti immagine non sono disponibili e la ricerca usa fonti gratuite.',
@@ -3074,6 +3122,10 @@ export const strings = {
     setAiRules: 'Reguły AI',
     setAiRulesDesc:
       'Stałe osobiste instrukcje stosowane przez AI w Docs, Sheets, Slides, PDF i Markdown.',
+    setAiSkills: 'Umiejętności AI',
+    setAiSkillsDesc:
+      'Dodaj workflow SKILL.md ładowane automatycznie lub wywoływane przez @skill-id.',
+    setAiSkillsOpen: 'Otwórz folder umiejętności',
     setAiGskTools: 'Narzędzia chmurowe Genspark',
     setAiGskToolsDesc:
       'Wyszukiwanie w sieci, generowanie obrazów AI i analiza mediów przechodzą przez Genspark i zużywają kredyty; po wyłączeniu narzędzia obrazów są niedostępne, a wyszukiwanie korzysta z darmowych źródeł.',
@@ -3291,6 +3343,10 @@ export const strings = {
     setAiRules: 'AI-regels',
     setAiRulesDesc:
       'Vaste persoonlijke instructies voor de AI in Docs, Sheets, Slides, PDF en Markdown.',
+    setAiSkills: 'AI-vaardigheden',
+    setAiSkillsDesc:
+      'Voeg SKILL.md-workflows toe die automatisch of via @skill-id geladen kunnen worden.',
+    setAiSkillsOpen: 'Map met vaardigheden openen',
     setAiGskTools: 'Genspark-cloudtools',
     setAiGskToolsDesc:
       'Webzoeken, AI-beeldgeneratie en media-analyse lopen via Genspark en verbruiken tegoed; uitgeschakeld zijn beeldtools niet beschikbaar en gebruikt zoeken gratis bronnen.',
@@ -3506,6 +3562,10 @@ export const strings = {
       'Hanya untuk OpenAI GPT-5.6 langsung. Tahap lebih tinggi boleh meningkatkan tugas kompleks, tetapi menambah kependaman dan penggunaan token.',
     setAiRules: 'Peraturan AI',
     setAiRulesDesc: 'Arahan peribadi kekal untuk AI Docs, Sheets, Slides, PDF dan Markdown.',
+    setAiSkills: 'Kemahiran AI',
+    setAiSkillsDesc:
+      'Tambah aliran SKILL.md yang dimuat automatik atau dipanggil dengan @skill-id.',
+    setAiSkillsOpen: 'Buka folder kemahiran',
     setAiGskTools: 'Alat awan Genspark',
     setAiGskToolsDesc:
       'Carian web, penjanaan imej AI dan analisis media melalui awan Genspark dan menggunakan kredit; jika dimatikan, alat imej tidak tersedia dan carian menggunakan sumber percuma.',
@@ -3718,6 +3778,9 @@ export const strings = {
       'רק בחיבור ישיר ל-OpenAI GPT-5.6. מאמץ גבוה יותר עשוי לשפר משימות מורכבות, אך מגדיל השהיה ושימוש בטוקנים.',
     setAiRules: 'כללי AI',
     setAiRulesDesc: 'הוראות אישיות קבועות ל-AI ב-Docs, Sheets, Slides, PDF ו-Markdown.',
+    setAiSkills: 'מיומנויות AI',
+    setAiSkillsDesc: 'הוסיפו תהליכי SKILL.md לטעינה אוטומטית או להפעלה באמצעות @skill-id.',
+    setAiSkillsOpen: 'פתיחת תיקיית המיומנויות',
     setAiGskTools: 'כלי הענן של Genspark',
     setAiGskToolsDesc:
       'חיפוש ברשת, יצירת תמונות וניתוח מדיה עוברים דרך Genspark וצורכים קרדיטים; בכיבוי, כלי התמונות אינם זמינים והחיפוש משתמש במקורות חינמיים.',
@@ -3932,6 +3995,9 @@ export const strings = {
       'केवल सीधे OpenAI GPT-5.6 के लिए। अधिक प्रयास जटिल कार्यों की गुणवत्ता सुधार सकता है, लेकिन विलंब और टोकन उपयोग बढ़ाता है।',
     setAiRules: 'AI नियम',
     setAiRulesDesc: 'Docs, Sheets, Slides, PDF और Markdown AI पर हमेशा लागू निजी निर्देश।',
+    setAiSkills: 'AI स्किल',
+    setAiSkillsDesc: 'SKILL.md वर्कफ़्लो जोड़ें जिन्हें AI स्वतः लोड करे या @skill-id से बुलाएँ।',
+    setAiSkillsOpen: 'स्किल फ़ोल्डर खोलें',
     setAiGskTools: 'Genspark क्लाउड टूल',
     setAiGskToolsDesc:
       'वेब खोज, AI छवि निर्माण और मीडिया विश्लेषण Genspark क्लाउड से होते हैं और क्रेडिट खर्च करते हैं; बंद करने पर छवि टूल अनुपलब्ध होंगे और खोज मुफ्त स्रोतों का उपयोग करेगी।',
@@ -4141,6 +4207,9 @@ export const strings = {
       '僅適用於直接連線的 OpenAI GPT-5.6。較高強度可提升複雜任務品質，但會增加延遲與 token 用量。',
     setAiRules: 'AI 規則',
     setAiRulesDesc: '持續套用至 Docs、Sheets、Slides、PDF 與 Markdown AI 的個人指示。',
+    setAiSkills: 'AI 技能',
+    setAiSkillsDesc: '加入 SKILL.md 工作流程，讓 AI 自動載入或以 @技能ID 指定。',
+    setAiSkillsOpen: '開啟技能資料夾',
     setAiGskTools: 'Genspark 雲端工具',
     setAiGskToolsDesc:
       '網頁搜尋、AI 生圖、媒體分析經 Genspark 雲端並消耗點數；關閉後生圖與媒體分析不可用，搜尋改用免費來源。',

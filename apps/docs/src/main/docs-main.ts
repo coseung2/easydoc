@@ -28,8 +28,10 @@ import {
   configuredDefaultSaveDir,
   contextMenuLabels,
   fetchRemoteImage,
+  ensureUserSkillsDir,
   installContextMenu,
   installNavigationGuard,
+  listUserSkills,
   printHtmlToPdf,
   safeExternalUrl,
   showOpenDialogWithMemory,
@@ -2638,6 +2640,7 @@ export function registerAiIpc(): void {
     const settings = resolveAiSettings(stored, defaultAiSettings())
     // a stored BYOK provider is honored when usable; half-filled configs fall back to genspark
     settings.provider = activeProvider(settings)
+    settings.userSkills = listUserSkills(app.getPath('userData'))
     return settings
   })
 
@@ -2657,7 +2660,16 @@ export function registerAiIpc(): void {
   })
 
   ipcMain.handle('ai:set-settings', (_event, settings: AiSettings) => {
-    writeJson(SETTINGS_PATH(), settings)
+    const persisted = { ...settings }
+    delete persisted.userSkills
+    writeJson(SETTINGS_PATH(), persisted)
+  })
+
+  ipcMain.handle('ai:open-skills-folder', async () => {
+    const dir = ensureUserSkillsDir(app.getPath('userData'))
+    const error = await shell.openPath(dir)
+    if (error) throw new Error(error)
+    return dir
   })
 
   ipcMain.handle('ai:stream', async (event, request: AiStreamRequest) => {
