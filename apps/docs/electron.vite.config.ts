@@ -17,7 +17,14 @@ export default defineConfig({
   // (same setup as apps/slides).
   main: {
     plugins: [
-      externalizeDepsPlugin({ exclude: ['@genoffice/electron-utils', '@genoffice/font-metrics'] }),
+      externalizeDepsPlugin({
+        exclude: [
+          '@genoffice/electron-utils',
+          '@genoffice/font-metrics',
+          '@genoffice/hwpx-engine',
+          'ownhwpx',
+        ],
+      }),
     ],
     resolve: { alias: localAlias },
   },

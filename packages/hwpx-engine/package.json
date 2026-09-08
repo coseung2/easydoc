@@ -1,0 +1,26 @@
+{
+  "name": "@genoffice/hwpx-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Experimental, bounded restricted-HTML to HWPX generation",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "fixtures": "vitest run tests/corpus.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ownhwpx": "0.2.16",
+    "parse5": "^8.0.1",
+    "fflate": "^0.8.3",
+    "saxes": "^6.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
