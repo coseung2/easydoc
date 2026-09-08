@@ -1,3 +1,9 @@
+import {
+  GENERATED_DOCUMENT_TYPES,
+  HWPX_TOOL_GUIDE,
+  isGeneratedDocumentType,
+  generatedDocumentResultText,
+} from '@genoffice/agent-core'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { AgentToolCall, AgentToolDef, ToolExecution } from '@genoffice/agent-core'
 import type { OutlineNode } from '../OutlinePanel'
@@ -1193,13 +1199,14 @@ export const AGENT_TOOLS: AgentToolDef[] = [
     name: 'create_document',
     description:
       'Create a NEW standalone file in the default save folder and open it in a new tab; the current PDF is not modified. Use when the user asks to put content (a summary, an extraction, an analysis result) into a new/separate document. ' +
-      "type 'pdf' (default) and 'docx' take simple HTML in content (<h1>-<h6>, <p>, <ul>/<ol>/<li>, <table>, <pre>, <blockquote>; inline <strong>/<em>/<u>/<s>); type 'md' takes Markdown source. Images are not supported in the new file's content.",
+      "type 'pdf' (default) and 'docx' take simple HTML in content (<h1>-<h6>, <p>, <ul>/<ol>/<li>, <table>, <pre>, <blockquote>; inline <strong>/<em>/<u>/<s>); type 'md' takes Markdown source. Images are not supported in initial pdf/docx content. " +
+      HWPX_TOOL_GUIDE,
     inputSchema: {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          enum: ['pdf', 'docx', 'md'],
+          enum: GENERATED_DOCUMENT_TYPES,
           description: "target file type (default 'pdf')",
         },
         title: { type: 'string', description: 'document title, used as the file name' },
@@ -3491,8 +3498,8 @@ export async function executePdfTool(
     case 'create_document': {
       const typeRaw = input.type === undefined ? 'pdf' : String(input.type)
       const summary = t('aiToolCreateDocument')
-      if (typeRaw !== 'pdf' && typeRaw !== 'docx' && typeRaw !== 'md')
-        return err('type must be one of pdf/docx/md', summary)
+      if (!isGeneratedDocumentType(typeRaw))
+        return err('type must be one of pdf/docx/md/hwpx', summary)
       const type: CreateDocumentType = typeRaw
       const title = String(input.title ?? '').trim()
       if (!title) return err('title must not be empty', summary)
@@ -3506,9 +3513,7 @@ export async function executePdfTool(
       if (!r.ok) return err(r.error ?? 'creating the document failed', summary)
       const name = `${title}.${type}`
       return {
-        output: r.path
-          ? `Created the new document at ${r.path} and opened it in a new tab.`
-          : `Created the new document "${name}" in a new tab; it saves itself into the default folder.`,
+        output: generatedDocumentResultText(type, title, r),
         summary: t('aiToolCreatedDocument', { name }),
       }
     }

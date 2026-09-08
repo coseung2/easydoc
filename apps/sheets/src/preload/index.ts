@@ -1,3 +1,4 @@
+import { isGeneratedDocumentType, type GeneratedDocumentResult } from '@genoffice/agent-core'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 ipcRenderer.on('ai:settings-changed', () => window.dispatchEvent(new Event('ai-settings-changed')))
 
@@ -341,9 +342,7 @@ const desktopApi: DesktopApi = {
       !isRecord(request) ||
       (request.type !== 'xlsx' &&
         request.type !== 'csv' &&
-        request.type !== 'docx' &&
-        request.type !== 'pdf' &&
-        request.type !== 'md') ||
+        !isGeneratedDocumentType(request.type)) ||
       typeof request.title !== 'string' ||
       request.title.length === 0 ||
       request.title.length > MAX_CREATE_DOCUMENT_TITLE_CHARS ||
@@ -365,11 +364,25 @@ const desktopApi: DesktopApi = {
       !isRecord(result) ||
       typeof result.ok !== 'boolean' ||
       (result.path !== undefined && typeof result.path !== 'string') ||
-      (result.error !== undefined && typeof result.error !== 'string')
+      (result.error !== undefined && typeof result.error !== 'string') ||
+      (result.opened !== undefined && typeof result.opened !== 'boolean') ||
+      (result.verification !== undefined && result.verification !== 'structural-only') ||
+      (result.warnings !== undefined &&
+        (!Array.isArray(result.warnings) ||
+          result.warnings.length > 20 ||
+          result.warnings.some((warning) => typeof warning !== 'string' || warning.length > 2000)))
     ) {
       throw new Error('Invalid create-document response.')
     }
-    return result as { ok: boolean; path?: string; error?: string }
+    const response: GeneratedDocumentResult = {
+      ok: result.ok,
+      ...(typeof result.path === 'string' ? { path: result.path } : {}),
+      ...(typeof result.error === 'string' ? { error: result.error } : {}),
+      ...(typeof result.opened === 'boolean' ? { opened: result.opened } : {}),
+      ...(Array.isArray(result.warnings) ? { warnings: result.warnings.map(String) } : {}),
+      ...(result.verification === 'structural-only' ? { verification: result.verification } : {}),
+    }
+    return response
   },
   async closeWorkbook(sessionId) {
     if (!isUuid(sessionId)) throw new Error('Invalid workbook session.')

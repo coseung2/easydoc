@@ -1,3 +1,4 @@
+import { GENERATED_DOCUMENT_TYPES } from '@genoffice/agent-core'
 import { z } from 'zod'
 
 import {
@@ -2587,7 +2588,7 @@ export type WorkbookExportCsvResult = z.infer<typeof workbookExportCsvResultSche
 /// creation flow (#960).
 export const workbookCreateDocumentRequestSchema = z
   .object({
-    type: z.enum(['xlsx', 'csv', 'docx', 'pdf', 'md']),
+    type: z.enum(['xlsx', 'csv', ...GENERATED_DOCUMENT_TYPES]),
     title: z.string().min(1).max(MAX_CREATE_DOCUMENT_TITLE_CHARS),
     content: z.string().min(1).max(MAX_CSV_EXPORT_CHARS),
     /// xlsx only: the worksheet name inside the created workbook (the source
@@ -2617,6 +2618,9 @@ export const workbookCreateDocumentResultSchema = z
     ok: z.boolean(),
     path: z.string().min(1).optional(),
     error: z.string().optional(),
+    opened: z.boolean().optional(),
+    warnings: z.array(z.string().max(2000)).max(20).optional(),
+    verification: z.literal('structural-only').optional(),
   })
   .strict()
 

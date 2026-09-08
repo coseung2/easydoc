@@ -1,3 +1,4 @@
+import { validateGeneratedDocumentRequest } from '@genoffice/agent-core'
 import {
   constants,
   copyFileSync,
@@ -443,26 +444,12 @@ export function configurePdfRuntime(paths: RuntimePaths): void {
   runtime = paths
 }
 
-const MAX_CREATE_DOCUMENT_TITLE_CHARS = 200
-const MAX_CREATE_DOCUMENT_CONTENT_CHARS = 2_000_000
-
 function parseCreateDocumentRequest(request: unknown): CreateDocumentRequest | null {
-  if (!request || typeof request !== 'object') return null
-  const { type, title, content } = request as Record<string, unknown>
-  if (type !== 'docx' && type !== 'pdf' && type !== 'md') return null
-  if (
-    typeof title !== 'string' ||
-    title.trim() === '' ||
-    title.length > MAX_CREATE_DOCUMENT_TITLE_CHARS
-  )
+  try {
+    return validateGeneratedDocumentRequest(request)
+  } catch {
     return null
-  if (
-    typeof content !== 'string' ||
-    content.trim() === '' ||
-    content.length > MAX_CREATE_DOCUMENT_CONTENT_CHARS
-  )
-    return null
-  return { type, title: title.trim(), content }
+  }
 }
 
 function sanitizeGeneratedDocumentTitle(title: string): string {
@@ -485,10 +472,10 @@ function uniqueGeneratedMarkdownPath(dir: string, title: string): string {
 async function createStandaloneDocument(
   request: CreateDocumentRequest,
 ): Promise<CreateDocumentResult> {
-  if (request.type === 'docx') {
+  if (request.type === 'docx' || request.type === 'hwpx') {
     return {
       ok: false,
-      error: 'Creating DOCX files requires the GenOffice shell or Docs app.',
+      error: `Creating ${request.type.toUpperCase()} files requires the GenOffice shell or Docs app.`,
     }
   }
   const title = sanitizeGeneratedDocumentTitle(request.title)

@@ -76,22 +76,9 @@ export interface SavedSignature {
 export type PdfConvertFormat = 'docx' | 'xlsx' | 'pptx'
 
 /** target file type of the AI create_document tool (mirrors the docs app's contract) */
-export type CreateDocumentType = 'docx' | 'pdf' | 'md'
-
-export interface CreateDocumentRequest {
-  type: CreateDocumentType
-  /** file name stem (sanitized main-side) */
-  title: string
-  /** docx/pdf: restricted HTML; md: Markdown source */
-  content: string
-}
-
-export interface CreateDocumentResult {
-  ok: boolean
-  /** the created file, when it is written directly (pdf/md); docx opens as a new tab that saves itself */
-  path?: string
-  error?: string
-}
+export type CreateDocumentType = import('@genoffice/agent-core').GeneratedDocumentType
+export type CreateDocumentRequest = import('@genoffice/agent-core').GeneratedDocumentRequest
+export type CreateDocumentResult = import('@genoffice/agent-core').GeneratedDocumentResult
 
 export type UiTheme = 'light' | 'dark' | 'system'
 

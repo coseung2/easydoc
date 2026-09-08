@@ -158,22 +158,9 @@ export type MenuCommand =
 export type UiTheme = 'light' | 'dark' | 'system'
 
 /** target file type of the AI create_document tool */
-export type CreateDocumentType = 'docx' | 'pdf' | 'md'
-
-export interface CreateDocumentRequest {
-  type: CreateDocumentType
-  /** file name stem (sanitized main-side) */
-  title: string
-  /** docx/pdf: restricted HTML; md: Markdown source */
-  content: string
-}
-
-export interface CreateDocumentResult {
-  ok: boolean
-  /** the created file, when it is written directly (pdf/md); docx opens as a new tab that saves itself */
-  path?: string
-  error?: string
-}
+export type CreateDocumentType = import('@genoffice/agent-core').GeneratedDocumentType
+export type CreateDocumentRequest = import('@genoffice/agent-core').GeneratedDocumentRequest
+export type CreateDocumentResult = import('@genoffice/agent-core').GeneratedDocumentResult
 
 /** AI-authored content queued for a docs tab spawned by create_document */
 export interface AiDocContent {

@@ -1342,11 +1342,7 @@ interface SessionInfo {
 
 /** AI create_document content the sheets app cannot build itself — the shell
  * routes it into the docs-owned creation flow (docx opens a fresh docs tab). */
-export interface SheetsAiHostDocumentRequest {
-  type: 'docx' | 'pdf' | 'md'
-  title: string
-  content: string
-}
+export type SheetsAiHostDocumentRequest = import('@genoffice/agent-core').GeneratedDocumentRequest
 
 interface SheetsRuntimeConfig {
   /** absolute path to the sheets preload bundle */
@@ -1413,8 +1409,11 @@ export function uniquePathIn(dir: string, fileName: string): string {
 async function createStandaloneSheetsDocument(
   request: SheetsAiHostDocumentRequest,
 ): Promise<WorkbookCreateDocumentResult> {
-  if (request.type === 'docx') {
-    return { ok: false, error: 'Creating DOCX files requires the GenOffice shell or Docs app.' }
+  if (request.type === 'docx' || request.type === 'hwpx') {
+    return {
+      ok: false,
+      error: `Creating ${request.type.toUpperCase()} files requires the GenOffice shell or Docs app.`,
+    }
   }
   const title = sanitizeGeneratedFileBase(request.title)
   try {

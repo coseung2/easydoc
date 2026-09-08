@@ -2095,6 +2095,29 @@ describe('add_form_mark', () => {
 })
 
 describe('create_document', () => {
+  it('preserves HWPX warnings instead of claiming an editable tab was opened', async () => {
+    const deps = makeDeps({
+      createDocument: vi.fn(async () => ({
+        ok: true,
+        path: '/tmp/report.hwpx',
+        opened: false,
+        warnings: ['Hancom verification is required.'],
+        verification: 'structural-only' as const,
+      })),
+    })
+    const result = await executePdfTool(
+      deps,
+      call('create_document', { type: 'hwpx', title: 'report', content: '<p>Summary</p>' }),
+    )
+    expect(result.isError).toBeUndefined()
+    expect(deps.createDocument).toHaveBeenCalledWith({
+      type: 'hwpx',
+      title: 'report',
+      content: '<p>Summary</p>',
+    })
+    expect(result.output).toContain('Hancom verification is required')
+    expect(result.output).toContain('not opened in an editor tab')
+  })
   it('defaults to a new PDF and reports the saved path', async () => {
     const deps = makeDeps()
     const result = await executePdfTool(

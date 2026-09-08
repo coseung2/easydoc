@@ -1,3 +1,17 @@
+export {
+  GENERATED_DOCUMENT_TYPES,
+  MAX_GENERATED_DOCUMENT_TITLE_CHARS,
+  MAX_GENERATED_DOCUMENT_CONTENT_CHARS,
+  isGeneratedDocumentType,
+  validateGeneratedDocumentRequest,
+  generatedDocumentResultText,
+  HWPX_TOOL_GUIDE,
+} from './generated-document'
+export type {
+  GeneratedDocumentType,
+  GeneratedDocumentRequest,
+  GeneratedDocumentResult,
+} from './generated-document'
 export type {
   AgentImage,
   AgentMessage,

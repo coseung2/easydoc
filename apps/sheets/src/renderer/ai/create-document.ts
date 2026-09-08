@@ -17,13 +17,16 @@ export async function createAiDocument(
   ctx: AiCreateDocumentContext,
   request: CreateDocumentToolRequest,
 ): Promise<CreateDocumentToolOutcome> {
-  if (request.type === 'docx' || request.type === 'pdf' || request.type === 'md') {
+  if (request.type !== 'xlsx' && request.type !== 'csv') {
     const result = await window.desktopApi.createDocument(request)
     if (!result.ok) return { ok: false, error: result.error ?? 'creating the document failed' }
     return {
       ok: true,
       name: `${request.title}.${request.type}`,
       ...(result.path ? { path: result.path } : {}),
+      ...(result.opened !== undefined ? { opened: result.opened } : {}),
+      ...(result.warnings ? { warnings: result.warnings } : {}),
+      ...(result.verification ? { verification: result.verification } : {}),
     }
   }
   const sheet = csvSheetById(ctx.univerRef.current, request.sheetId)

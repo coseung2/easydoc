@@ -27,6 +27,7 @@ import {
   appMenuLabels,
   buildPrintableHtml,
   configuredDefaultSaveDir,
+  generatedFileStem,
   contextMenuLabels,
   fetchRemoteImage,
   ensureUserSkillsDir,
@@ -41,6 +42,7 @@ import {
   windowMenuTemplate,
 } from '@genoffice/electron-utils'
 import { configureMetricsCache, familyVerticalMetrics } from '@genoffice/font-metrics'
+import { createGeneratedDocument } from './generated-document'
 import { createI18n, getUiLang, normalizeLang, setUiLang } from '@genoffice/i18n'
 import { ProjectStore } from '@genoffice/project-store'
 import type {
@@ -3662,25 +3664,19 @@ export function setDocsShellHooks(hooks: DocsShellHooks | null): void {
 /** After writing an exported/AI-generated file: open it in the right tab
  * (shell) or reveal it in the folder (standalone). Tab-opening failure must
  * not report the write itself as failed — the file is already persisted. */
-function openGeneratedFile(path: string): void {
+function openGeneratedFile(path: string): boolean {
   try {
-    if (shellHooks?.openGeneratedPath?.(path)) return
+    if (shellHooks?.openGeneratedPath?.(path)) return true
   } catch (err) {
     console.warn('[docs] Failed to open generated file:', err)
   }
   shell.showItemInFolder(path)
+  return false
 }
 
 /** Pick a safe file-name stem for an AI-created document. */
 export function sanitizeAiDocFileBase(title: string): string {
-  // Control characters are intentionally rejected from generated file names.
-  const cleaned = String(title ?? '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[/\\:*?"<>|\u0000-\u001f]/g, '_')
-    .trim()
-    .slice(0, 80)
-    .trim()
-  return cleaned && cleaned !== '.' && cleaned !== '..' ? cleaned : 'Untitled'
+  return generatedFileStem(title)
 }
 
 /**
@@ -3693,42 +3689,26 @@ export function sanitizeAiDocFileBase(title: string): string {
 export async function createAiDocument(
   request: CreateDocumentRequest,
 ): Promise<CreateDocumentResult> {
-  const type = request?.type
-  const title = sanitizeAiDocFileBase(request?.title)
-  const content = String(request?.content ?? '')
-  if (!content.trim()) return { ok: false, error: 'content must not be empty' }
-  try {
-    if (type === 'docx') {
-      const payload: AiDocContent = { title, html: content }
+  return createGeneratedDocument(request, {
+    saveDir: defaultSaveDir,
+    openGenerated: openGeneratedFile,
+    reveal: (path) => shell.showItemInFolder(path),
+    openDocx: (title, html) => {
+      const payload: AiDocContent = { title, html }
       if (shellHooks?.openAiDocTab) shellHooks.openAiDocTab(payload)
       else {
         const win = createDocsWindow(undefined)
         markDocsNewBlank(win.webContents.id)
         queueDocsAiContent(win.webContents.id, payload)
       }
-      return { ok: true }
-    }
-    if (type === 'pdf') {
-      const bytes = await printHtmlToPdf(
+    },
+    renderPdf: (title, content) =>
+      printHtmlToPdf(
         buildPrintableHtml(title, content),
         () =>
           new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } }),
-      )
-      const filePath = uniquePathIn(defaultSaveDir(), `${title}.pdf`)
-      await writeFile(filePath, bytes)
-      openGeneratedFile(filePath)
-      return { ok: true, path: filePath }
-    }
-    if (type === 'md') {
-      const filePath = uniquePathIn(defaultSaveDir(), `${title}.md`)
-      await writeFile(filePath, content, 'utf8')
-      openGeneratedFile(filePath)
-      return { ok: true, path: filePath }
-    }
-    return { ok: false, error: `unsupported document type: ${String(type)}` }
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
-  }
+      ),
+  })
 }
 
 // ---- application menu ----

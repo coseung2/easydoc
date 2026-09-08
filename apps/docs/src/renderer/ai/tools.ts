@@ -1,3 +1,9 @@
+import {
+  GENERATED_DOCUMENT_TYPES,
+  HWPX_TOOL_GUIDE,
+  isGeneratedDocumentType,
+  generatedDocumentResultText,
+} from '@genoffice/agent-core'
 import type { Editor } from '@tiptap/core'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import type { ChartDisplay, CommentInfo, NewChart } from '@genoffice/docx-engine'
@@ -298,19 +304,20 @@ export const AGENT_TOOLS: AgentToolDef[] = [
     name: 'create_document',
     description:
       'Create a NEW standalone file in the default save folder and open it in a new tab; the current document is not modified. Use when the user asks to put content into a new/separate document instead of this one. ' +
-      "type 'docx' (default) and 'pdf' take the same restricted HTML as insert_content in content; type 'md' takes Markdown source. Images and charts are not supported in the new file's initial content.",
+      "type 'docx' (default) and 'pdf' take the same restricted HTML as insert_content in content; type 'md' takes Markdown source. Images and charts are not supported in the initial docx/pdf content. " +
+      HWPX_TOOL_GUIDE,
     inputSchema: {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          enum: ['docx', 'pdf', 'md'],
+          enum: GENERATED_DOCUMENT_TYPES,
           description: "target file type (default 'docx')",
         },
         title: { type: 'string', description: 'document title, used as the file name' },
         content: {
           type: 'string',
-          description: 'full document content: restricted HTML for docx/pdf, Markdown for md',
+          description: 'full document content: restricted HTML for docx/pdf/hwpx, Markdown for md',
         },
       },
       required: ['title', 'content'],
@@ -543,8 +550,8 @@ async function executeAsyncTool(
     }
     case 'create_document': {
       const typeRaw = call.input.type === undefined ? 'docx' : String(call.input.type)
-      if (typeRaw !== 'docx' && typeRaw !== 'pdf' && typeRaw !== 'md')
-        return fail(t('aiSumCreateDocument'), 'type must be one of docx/pdf/md')
+      if (!isGeneratedDocumentType(typeRaw))
+        return fail(t('aiSumCreateDocument'), 'type must be one of docx/pdf/md/hwpx')
       const type: CreateDocumentType = typeRaw
       const title = String(call.input.title ?? '').trim()
       if (!title) return fail(t('aiSumCreateDocument'), 'title must not be empty')
@@ -556,7 +563,10 @@ async function executeAsyncTool(
         // the new docx tab fills itself after this tool already returned, so
         // unparseable HTML must be rejected here, where the model can retry
         try {
-          if (parseHtmlFragment(content, { bullet: null, ordered: null }).length === 0)
+          if (
+            type !== 'hwpx' &&
+            parseHtmlFragment(content, { bullet: null, ordered: null }).length === 0
+          )
             return fail(t('aiSumCreateDocument'), 'content did not parse into any content blocks')
         } catch (e) {
           return fail(t('aiSumCreateDocument'), e instanceof Error ? e.message : String(e))
@@ -566,9 +576,7 @@ async function executeAsyncTool(
       if (!r.ok) return fail(t('aiSumCreateDocument'), r.error ?? 'creating the document failed')
       const name = `${title}.${type}`
       return {
-        output: r.path
-          ? `Created the new document at ${r.path} and opened it in a new tab.`
-          : `Created the new document "${name}" in a new tab; it saves itself into the default folder.`,
+        output: generatedDocumentResultText(type, title, r),
         mutated: false,
         summary: t('aiSumCreatedDocument', { name }),
       }

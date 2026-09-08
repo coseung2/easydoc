@@ -50,6 +50,29 @@ async function runWithDesktop(
 }
 
 describe('create_document tool', () => {
+  it('routes HWPX through the dedicated creator and reports the compatibility warning', async () => {
+    const createDocument = vi.fn(async () => ({
+      ok: true,
+      path: '/tmp/보고서.hwpx',
+      opened: false,
+      warnings: ['Hancom verification is required.'],
+      verification: 'structural-only',
+    }))
+    const result = await runWithDesktop(createDocument, {
+      type: 'hwpx',
+      title: '보고서',
+      content: '<h1>보고서</h1><p>자료</p>',
+    })
+    expect(result.isError).toBeUndefined()
+    expect(createDocument).toHaveBeenCalledWith({
+      type: 'hwpx',
+      title: '보고서',
+      content: '<h1>보고서</h1><p>자료</p>',
+    })
+    expect(result.output).toContain('Hancom verification is required')
+    expect(result.output).toContain('not opened in an editor tab')
+    expect(result.mutated).toBe(false)
+  })
   it('defaults to docx and forwards the request', async () => {
     const createDocument = vi.fn(async () => ({ ok: true }))
     const exec = await runWithDesktop(createDocument, {

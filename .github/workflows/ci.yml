@@ -142,6 +142,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test -w @genoffice/shell
 
+      # ZIP/XML and SDK read-back tests only: this runner does not install Hancom.
+      - name: Check HWPX generation on Windows (structural only)
+        run: npm run test -w @genoffice/hwpx-engine
+
   e2e:
     # 22.04, not -latest: 24.04's AppArmor hardening blocks Electron renderer
     # spawn under xvfb even with --no-sandbox and the userns sysctl lifted

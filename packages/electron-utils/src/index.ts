@@ -1,3 +1,4 @@
+export { generatedFileStem, writeGeneratedFile } from './generated-file'
 export {
   buildContextMenuItems,
   contextMenuLabels,

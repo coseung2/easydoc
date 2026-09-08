@@ -33,8 +33,10 @@ export const MAX_CSV_EXPORT_CHARS = 64_000_000
 /// validator). xlsx/csv content carries a worksheet's serialized CSV and is
 /// bounded by MAX_CSV_EXPORT_CHARS instead; docx/pdf/md content is
 /// AI-authored HTML/Markdown and mirrors the docs/pdf apps' 2M cap.
-export const MAX_CREATE_DOCUMENT_TITLE_CHARS = 200
-export const MAX_CREATE_DOCUMENT_CONTENT_CHARS = 2_000_000
+export {
+  MAX_GENERATED_DOCUMENT_TITLE_CHARS as MAX_CREATE_DOCUMENT_TITLE_CHARS,
+  MAX_GENERATED_DOCUMENT_CONTENT_CHARS as MAX_CREATE_DOCUMENT_CONTENT_CHARS,
+} from '@genoffice/agent-core'
 
 /// One PDF-export header/footer template (shared by the zod schema and the
 /// preload validator). `&G` pictures ride along as base64 data URLs — the

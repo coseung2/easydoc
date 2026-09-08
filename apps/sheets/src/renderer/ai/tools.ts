@@ -1,3 +1,10 @@
+import {
+  GENERATED_DOCUMENT_TYPES,
+  HWPX_TOOL_GUIDE,
+  isGeneratedDocumentType,
+  generatedDocumentResultText,
+  type GeneratedDocumentType,
+} from '@genoffice/agent-core'
 import { z } from 'zod'
 import type { AgentToolCall, AgentToolDef } from '@genoffice/agent-core'
 import {
@@ -172,7 +179,7 @@ export interface TraceDependentsOutcome {
 }
 
 /** every file type create_document can produce */
-export type CreateDocumentFileType = 'xlsx' | 'csv' | 'docx' | 'pdf' | 'md'
+export type CreateDocumentFileType = 'xlsx' | 'csv' | GeneratedDocumentType
 
 /** create_document request handed to the App: xlsx/csv name a worksheet to
  * export; docx/pdf/md carry AI-authored content (routed to the docs flow).
@@ -183,6 +190,7 @@ export type CreateDocumentToolRequest =
   | { type: 'docx'; title: string; content: string }
   | { type: 'pdf'; title: string; content: string }
   | { type: 'md'; title: string; content: string }
+  | { type: 'hwpx'; title: string; content: string }
 
 export type CreateDocumentToolOutcome =
   | {
@@ -191,6 +199,9 @@ export type CreateDocumentToolOutcome =
       name: string
       /** absolute path when the file was written directly (docx opens a tab that saves itself) */
       path?: string
+      opened?: boolean
+      warnings?: string[]
+      verification?: 'structural-only'
       /** xlsx/csv: the exported worksheet's name */
       sheetName?: string
       /** xlsx/csv: the sheet holds formulas — the file keeps computed values only */
@@ -526,13 +537,14 @@ export const WORKBOOK_TOOLS: AgentToolDef[] = [
       "Types 'xlsx' (default) and 'csv' export ONE worksheet of THIS workbook: pass sheetId (defaults to the active sheet); the file gets the sheet's current displayed values (formula results; formulas and formatting are not carried over) and content must be omitted. " +
       'To split a workbook into separate files, call once per sheet. To export data that is not in a sheet yet, write it into a new sheet first (add_sheet + set_range), then export that sheet. ' +
       "Types 'docx' and 'pdf' take simple HTML in content (<h1>-<h6>, <p>, <ul>/<ol>/<li>, <table>, <pre>, <blockquote>; inline <strong>/<em>/<u>/<s>); type 'md' takes Markdown source — use these when the user wants a report/summary as its own document. " +
-      'title becomes the file name; xlsx/csv default it to the worksheet name.',
+      'title becomes the file name; xlsx/csv default it to the worksheet name. ' +
+      HWPX_TOOL_GUIDE,
     inputSchema: {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          enum: ['xlsx', 'csv', 'docx', 'pdf', 'md'],
+          enum: ['xlsx', 'csv', ...GENERATED_DOCUMENT_TYPES],
           description: "target file type (default 'xlsx')",
         },
         sheetId: {
@@ -1380,14 +1392,8 @@ export function executeWorkbookTool(
       const create = deps.createDocument
       if (!create) return fail(summary, 'create_document is not available in this context.')
       const typeRaw = call.input.type === undefined ? 'xlsx' : String(call.input.type)
-      if (
-        typeRaw !== 'xlsx' &&
-        typeRaw !== 'csv' &&
-        typeRaw !== 'docx' &&
-        typeRaw !== 'pdf' &&
-        typeRaw !== 'md'
-      ) {
-        return fail(summary, 'type must be one of xlsx/csv/docx/pdf/md')
+      if (typeRaw !== 'xlsx' && typeRaw !== 'csv' && !isGeneratedDocumentType(typeRaw)) {
+        return fail(summary, 'type must be one of xlsx/csv/docx/pdf/md/hwpx')
       }
       const title = typeof call.input.title === 'string' ? call.input.title.trim() : ''
       if (typeRaw === 'xlsx' || typeRaw === 'csv') {
@@ -1428,9 +1434,7 @@ export function executeWorkbookTool(
       return create({ type: typeRaw, title, content }).then((outcome) => {
         if (!outcome.ok) return fail(summary, outcome.error)
         return {
-          output: outcome.path
-            ? `Created the new document at ${outcome.path} and opened it in a new tab.`
-            : `Created the new document "${outcome.name}" in a new tab; it saves itself into the default folder.`,
+          output: generatedDocumentResultText(typeRaw, title, outcome),
           mutated: false,
           summary: t('aiToolCreatedDocument', { name: outcome.name }),
         }

@@ -49,6 +49,29 @@ async function exec(
 }
 
 describe('create_document tool (executor)', () => {
+  it('routes HWPX authored content without changing the workbook and keeps warnings', async () => {
+    const createDocument = vi.fn(async (): Promise<CreateDocumentToolOutcome> => ({
+      ok: true,
+      name: 'report.hwpx',
+      path: '/tmp/report.hwpx',
+      opened: false,
+      warnings: ['Hancom verification is required.'],
+      verification: 'structural-only',
+    }))
+    const result = await exec(
+      { type: 'hwpx', title: 'report', content: '<p>Summary</p>' },
+      createDocument,
+    )
+    expect(result.isError).toBeUndefined()
+    expect(createDocument).toHaveBeenCalledWith({
+      type: 'hwpx',
+      title: 'report',
+      content: '<p>Summary</p>',
+    })
+    expect(result.output).toContain('Hancom verification is required')
+    expect(result.output).toContain('not opened in an editor tab')
+    expect(result.mutated).toBe(false)
+  })
   it('defaults to xlsx on the active sheet', async () => {
     const createDocument = vi.fn(async (): Promise<CreateDocumentToolOutcome> => ({
       ok: true,
