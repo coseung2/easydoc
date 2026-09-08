@@ -170,10 +170,23 @@ export const AI_PROVIDER_ADAPTERS: Record<AiProviderId, ProviderAdapter> = {
     meta: metaOf('openai'),
     capabilities: { auth: 'api-key', vision: true },
     // every current OpenAI model accepts the renamed field, so it is safe endpoint-wide;
-    // other openai-compatible vendors (and the LiteLLM-backed Genspark proxy) still expect `max_tokens`
-    resolveEndpoint: fixedEndpoint('openai-compatible', 'https://api.openai.com/v1', {
-      useMaxCompletionTokens: true,
-    }),
+    // other openai-compatible vendors (and the LiteLLM-backed Genspark proxy) still expect `max_tokens`.
+    // reasoning_effort is intentionally direct-OpenAI + GPT-5.6 only: the Genspark proxy and arbitrary
+    // compatible endpoints may reject provider-specific request fields.
+    resolveEndpoint(config) {
+      const effort = config.reasoningEffort
+      const supportsConfiguredEffort =
+        /^gpt-5\.6(?:-|$)/.test(config.model) &&
+        effort !== undefined &&
+        ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(effort)
+      return {
+        protocol: 'openai-compatible',
+        baseUrl: config.baseUrl || 'https://api.openai.com/v1',
+        ...(modelHasFixedSampling(config.model) ? { omitTemperature: true } : {}),
+        useMaxCompletionTokens: true,
+        ...(supportsConfiguredEffort ? { bodyExtras: { reasoning_effort: effort } } : {}),
+      }
+    },
   },
   kimi: {
     meta: metaOf('kimi'),

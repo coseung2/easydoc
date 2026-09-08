@@ -7,7 +7,7 @@ import {
   MIN_MAX_OUTPUT_TOKENS,
   clampMaxOutputTokens,
 } from '@genoffice/ai-provider'
-import type { AiSettings } from '@genoffice/ai-provider'
+import type { AiSettings, OpenAiReasoningEffort } from '@genoffice/ai-provider'
 import { useI18n } from './locale'
 import type { StringKey, TFunc } from './locale'
 import type { AccountStatus, AiCatalogEntry, UiTheme } from '../../shared/home-api'
@@ -20,6 +20,15 @@ import './settings.css'
 
 // sorted by ISO 639 language code — native-script labels have no natural
 // shared alphabet, so the code is the ordering key
+const REASONING_EFFORT_OPTIONS: Array<{ value: OpenAiReasoningEffort; label: string }> = [
+  { value: 'none', label: 'none' },
+  { value: 'low', label: 'low' },
+  { value: 'medium', label: 'medium' },
+  { value: 'high', label: 'high' },
+  { value: 'xhigh', label: 'xhigh' },
+  { value: 'max', label: 'max' },
+]
+
 const LANG_OPTIONS = [
   { value: 'ar', label: 'العربية' },
   { value: 'de', label: 'Deutsch' },
@@ -189,6 +198,7 @@ function AiModelPane({ t }: { t: TFunc }) {
     model: meta?.defaultModel ?? '',
   }
   const isGenspark = provider === 'genspark'
+  const isOpenAi56 = provider === 'openai' && /^gpt-5\.6(?:-|$)/.test(config.model)
 
   const touch = () => {
     setDirty(true)
@@ -294,6 +304,23 @@ function AiModelPane({ t }: { t: TFunc }) {
           />
         )}
       </div>
+      {isOpenAi56 && (
+        <div className="set-field">
+          <div className="set-field-text">
+            <div className="set-field-stack">
+              <label className="set-field-label">{t('setAiReasoningEffort')}</label>
+              <div className="set-field-desc">{t('setAiReasoningEffortDesc')}</div>
+            </div>
+          </div>
+          <Dropdown
+            className="set-dd"
+            value={config.reasoningEffort ?? 'medium'}
+            ariaLabel={t('setAiReasoningEffort')}
+            options={REASONING_EFFORT_OPTIONS}
+            onPick={(effort) => updateConfig({ reasoningEffort: effort as OpenAiReasoningEffort })}
+          />
+        </div>
+      )}
       {!isGenspark && (
         <>
           <div className="set-field">

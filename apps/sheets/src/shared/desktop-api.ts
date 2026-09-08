@@ -2379,6 +2379,7 @@ const aiProviderConfigSchema = z
     apiKey: z.string(),
     model: z.string(),
     baseUrl: z.string().optional(),
+    reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max']).optional(),
   })
   .strict()
 

@@ -168,6 +168,9 @@ export const strings = {
     setAiMaxTokens: '单次输出上限（tokens）',
     setAiMaxTokensDesc:
       '一次回合的输出预算。推理模型会先消耗预算用于思考，预算用完时回复可能变成空白，遇到这种情况请调大此项。',
+    setAiReasoningEffort: '推理强度',
+    setAiReasoningEffortDesc:
+      '仅适用于 OpenAI GPT-5.6 直连。更高的强度通常有助于复杂任务，但会增加延迟和 token 消耗。',
     setAiGskTools: 'Genspark 云工具',
     setAiGskToolsDesc:
       '网页搜索、AI 生图、媒体分析经 Genspark 云端并消耗积分；关闭后生图与媒体分析不可用，搜索改用免费来源。',
@@ -374,6 +377,9 @@ export const strings = {
     setAiMaxTokens: 'Max output tokens',
     setAiMaxTokensDesc:
       'Output budget for one turn. Reasoning models spend part of it thinking, so an answer can come back empty once the budget runs out; raise this value if that happens.',
+    setAiReasoningEffort: 'Reasoning effort',
+    setAiReasoningEffortDesc:
+      'Direct OpenAI GPT-5.6 only. Higher effort can improve complex tasks but increases latency and token use.',
     setAiGskTools: 'Genspark cloud tools',
     setAiGskToolsDesc:
       'Web search, AI image generation and media analysis run through Genspark and use credits; when off, image tools are unavailable and search uses free sources.',
@@ -595,6 +601,9 @@ export const strings = {
     setAiMaxTokens: '1 回あたりの出力トークン上限',
     setAiMaxTokensDesc:
       '1 ターンの出力予算です。推論モデルは思考にも消費するため、使い切ると返信が空になることがあります。その場合は値を大きくしてください。',
+    setAiReasoningEffort: '推論強度',
+    setAiReasoningEffortDesc:
+      'OpenAI GPT-5.6 の直接接続時のみ。高くすると複雑なタスクの品質が向上しやすい一方、遅延とトークン消費が増えます。',
     setAiGskTools: 'Genspark クラウドツール',
     setAiGskToolsDesc:
       'ウェブ検索・AI 画像生成・メディア分析は Genspark クラウド経由でクレジットを消費します。オフにすると画像ツールは使えず、検索は無料ソースを使用します。',
@@ -813,6 +822,9 @@ export const strings = {
     setAiMaxTokens: '턴당 출력 토큰 상한',
     setAiMaxTokensDesc:
       '한 턴의 출력 예산입니다. 추론 모델은 생각하는 데 소모하므로 예산이 떨어지면 응답이 비어 올 수 있습니다. 그럴 때 값을 키우세요.',
+    setAiReasoningEffort: '추론 강도',
+    setAiReasoningEffortDesc:
+      'OpenAI GPT-5.6 직접 연결에만 적용됩니다. 높일수록 복잡한 작업 품질이 좋아질 수 있지만 지연과 토큰 사용량이 늘어납니다.',
     setAiGskTools: 'Genspark 클라우드 도구',
     setAiGskToolsDesc:
       '웹 검색·AI 이미지 생성·미디어 분석은 Genspark 클라우드를 거치며 크레딧을 사용합니다. 끄면 이미지 도구를 사용할 수 없고 검색은 무료 소스를 사용합니다.',
@@ -1037,6 +1049,9 @@ export const strings = {
     setAiMaxTokens: 'Jetons de sortie max.',
     setAiMaxTokensDesc:
       'Budget de sortie pour un tour. Les modèles à raisonnement le dépensent en réflexion ; quand il est épuisé, la réponse arrive vide : augmentez cette valeur.',
+    setAiReasoningEffort: 'Effort de raisonnement',
+    setAiReasoningEffortDesc:
+      'Uniquement pour OpenAI GPT-5.6 en accès direct. Un effort plus élevé peut améliorer les tâches complexes, mais augmente la latence et les tokens.',
     setAiGskTools: 'Outils cloud Genspark',
     setAiGskToolsDesc:
       "Recherche web, génération d'images et analyse de médias passent par Genspark et consomment des crédits ; désactivé, les outils d'image sont indisponibles et la recherche utilise des sources gratuites.",
@@ -1263,6 +1278,9 @@ export const strings = {
     setAiMaxTokens: 'Max. Ausgabe-Tokens',
     setAiMaxTokensDesc:
       'Ausgabe-Budget pro Durchlauf. Denk-Modelle verbrauchen es beim Reasoning; ist es erschöpft, kommt eine leere Antwort zurück — dann diesen Wert erhöhen.',
+    setAiReasoningEffort: 'Reasoning-Stufe',
+    setAiReasoningEffortDesc:
+      'Nur bei direktem OpenAI GPT-5.6. Höhere Stufen können komplexe Aufgaben verbessern, erhöhen aber Latenz und Tokenverbrauch.',
     setAiGskTools: 'Genspark-Cloud-Tools',
     setAiGskToolsDesc:
       'Websuche, KI-Bilderzeugung und Medienanalyse laufen über Genspark und verbrauchen Guthaben; ausgeschaltet sind Bildtools nicht verfügbar und die Suche nutzt freie Quellen.',
@@ -1487,6 +1505,9 @@ export const strings = {
     setAiMaxTokens: 'Tokens de salida máx.',
     setAiMaxTokensDesc:
       'Presupuesto de salida por turno. Los modelos de razonamiento lo gastan en pensar; si se agota, la respuesta llega vacía: suba este valor.',
+    setAiReasoningEffort: 'Esfuerzo de razonamiento',
+    setAiReasoningEffortDesc:
+      'Solo para OpenAI GPT-5.6 directo. Un nivel mayor puede mejorar tareas complejas, pero aumenta la latencia y el uso de tokens.',
     setAiGskTools: 'Herramientas en la nube de Genspark',
     setAiGskToolsDesc:
       'La búsqueda web, la generación de imágenes y el análisis de medios pasan por Genspark y consumen créditos; desactivado, las herramientas de imagen no están disponibles y la búsqueda usa fuentes gratuitas.',
@@ -1705,6 +1726,9 @@ export const strings = {
     setAiMaxTokens: 'จำนวนโทเคนขาออกสูงสุด',
     setAiMaxTokensDesc:
       'งบผลลัพธ์ต่อหนึ่งรอบ โมเดลแบบใช้เหตุผลจะใช้ส่วนหนึ่งไปกับการคิด หากงบหมด คำตอบอาจกลับมาว่างเปล่า ให้เพิ่มค่านี้',
+    setAiReasoningEffort: 'ระดับการใช้เหตุผล',
+    setAiReasoningEffortDesc:
+      'ใช้เฉพาะ OpenAI GPT-5.6 แบบเชื่อมต่อโดยตรง ระดับที่สูงขึ้นอาจช่วยงานซับซ้อน แต่เพิ่มเวลาและการใช้โทเคน',
     setAiGskTools: 'เครื่องมือคลาวด์ Genspark',
     setAiGskToolsDesc:
       'ค้นเว็บ สร้างภาพ AI และวิเคราะห์สื่อผ่านคลาวด์ Genspark และใช้เครดิต ปิดแล้วเครื่องมือภาพจะใช้ไม่ได้ และการค้นหาใช้แหล่งฟรี',
@@ -1924,6 +1948,9 @@ export const strings = {
     setAiMaxTokens: 'Token keluaran maks.',
     setAiMaxTokensDesc:
       'Anggaran keluaran untuk satu giliran. Model penalaran memakainya untuk berpikir; jika habis, balasan datang kosong — naikkan nilai ini.',
+    setAiReasoningEffort: 'Upaya penalaran',
+    setAiReasoningEffortDesc:
+      'Hanya untuk OpenAI GPT-5.6 langsung. Upaya lebih tinggi dapat meningkatkan tugas kompleks, tetapi menambah latensi dan penggunaan token.',
     setAiGskTools: 'Alat cloud Genspark',
     setAiGskToolsDesc:
       'Pencarian web, pembuatan gambar AI, dan analisis media berjalan lewat Genspark dan memakai kredit; jika dimatikan, alat gambar tidak tersedia dan pencarian memakai sumber gratis.',
@@ -2144,6 +2171,9 @@ export const strings = {
     setAiMaxTokens: 'Макс. токенов на ответ',
     setAiMaxTokensDesc:
       'Бюджет вывода за один ход. Модели рассуждений тратят его на размышления: если бюджет иссякнет, ответ придёт пустым — увеличьте значение.',
+    setAiReasoningEffort: 'Усилие рассуждения',
+    setAiReasoningEffortDesc:
+      'Только для прямого OpenAI GPT-5.6. Более высокий уровень может улучшить сложные задачи, но увеличивает задержку и расход токенов.',
     setAiGskTools: 'Облачные инструменты Genspark',
     setAiGskToolsDesc:
       'Веб-поиск, генерация изображений и анализ медиа идут через Genspark и расходуют кредиты; при отключении инструменты изображений недоступны, а поиск использует бесплатные источники.',
@@ -2362,6 +2392,9 @@ export const strings = {
     setAiMaxTokens: 'الحد الأقصى لرموز المخرجات',
     setAiMaxTokensDesc:
       'ميزانية الإخراج في الدورة الواحدة. نماذج الاستدلال تصرفها على التفكير، فإذا نفدت جاء الرد فارغًا؛ ارفع هذه القيمة عندئذ.',
+    setAiReasoningEffort: 'جهد الاستدلال',
+    setAiReasoningEffortDesc:
+      'لـ OpenAI GPT-5.6 المباشر فقط. قد يحسن المستوى الأعلى المهام المعقدة، لكنه يزيد زمن الاستجابة واستهلاك الرموز.',
     setAiGskTools: 'أدوات Genspark السحابية',
     setAiGskToolsDesc:
       'يمر بحث الويب وتوليد الصور وتحليل الوسائط عبر سحابة Genspark ويستهلك الرصيد؛ عند الإيقاف تصبح أدوات الصور غير متاحة ويستخدم البحث مصادر مجانية.',
@@ -2574,6 +2607,9 @@ export const strings = {
     setAiMaxTokens: 'Máx. de tokens de saída',
     setAiMaxTokensDesc:
       'Orçamento de saída por turno. Modelos de raciocínio gastam-no pensando; se esgotar, a resposta vem vazia — aumente este valor.',
+    setAiReasoningEffort: 'Esforço de raciocínio',
+    setAiReasoningEffortDesc:
+      'Somente para OpenAI GPT-5.6 direto. Um nível maior pode melhorar tarefas complexas, mas aumenta a latência e o uso de tokens.',
     setAiGskTools: 'Ferramentas na nuvem Genspark',
     setAiGskToolsDesc:
       'Busca na web, geração de imagens e análise de mídia passam pela Genspark e consomem créditos; desligado, as ferramentas de imagem ficam indisponíveis e a busca usa fontes gratuitas.',
@@ -2786,6 +2822,9 @@ export const strings = {
     setAiMaxTokens: 'Token di output massimi',
     setAiMaxTokensDesc:
       'Budget di uscita per singolo turno. I modelli di ragionamento lo consumano pensando: se si esaurisce, la risposta arriva vuota; aumentalo.',
+    setAiReasoningEffort: 'Livello di ragionamento',
+    setAiReasoningEffortDesc:
+      'Solo per OpenAI GPT-5.6 diretto. Un livello più alto può migliorare i compiti complessi, ma aumenta latenza e consumo di token.',
     setAiGskTools: 'Strumenti cloud Genspark',
     setAiGskToolsDesc:
       'Ricerca web, generazione di immagini e analisi dei media passano da Genspark e consumano crediti; se disattivato, gli strumenti immagine non sono disponibili e la ricerca usa fonti gratuite.',
@@ -2996,6 +3035,9 @@ export const strings = {
     setAiMaxTokens: 'Maks. tokeny wyjścia',
     setAiMaxTokensDesc:
       'Budżet wyjścia na jedną turę. Modele rozumowania zużywają go na myślenie; gdy się wyczerpie, odpowiedź przychodzi pusta — zwiększ tę wartość.',
+    setAiReasoningEffort: 'Poziom rozumowania',
+    setAiReasoningEffortDesc:
+      'Tylko dla bezpośredniego OpenAI GPT-5.6. Wyższy poziom może poprawić złożone zadania, ale zwiększa opóźnienie i zużycie tokenów.',
     setAiGskTools: 'Narzędzia chmurowe Genspark',
     setAiGskToolsDesc:
       'Wyszukiwanie w sieci, generowanie obrazów AI i analiza mediów przechodzą przez Genspark i zużywają kredyty; po wyłączeniu narzędzia obrazów są niedostępne, a wyszukiwanie korzysta z darmowych źródeł.',
@@ -3207,6 +3249,9 @@ export const strings = {
     setAiMaxTokens: 'Max. outputtokens',
     setAiMaxTokensDesc:
       'Uitvoerbudget voor één beurt. Redeneermodellen geven dit uit aan denken; is het op, dan komt een leeg antwoord terug — verhoog deze waarde.',
+    setAiReasoningEffort: 'Redeneerinspanning',
+    setAiReasoningEffortDesc:
+      'Alleen voor directe OpenAI GPT-5.6. Een hoger niveau kan complexe taken verbeteren, maar verhoogt latentie en tokengebruik.',
     setAiGskTools: 'Genspark-cloudtools',
     setAiGskToolsDesc:
       'Webzoeken, AI-beeldgeneratie en media-analyse lopen via Genspark en verbruiken tegoed; uitgeschakeld zijn beeldtools niet beschikbaar en gebruikt zoeken gratis bronnen.',
@@ -3417,6 +3462,9 @@ export const strings = {
     setAiMaxTokens: 'Token output maks.',
     setAiMaxTokensDesc:
       'Belanjawan output untuk satu pusingan. Model penaakulan menghabiskannya untuk berfikir; jika habis, balasan datang kosong — tingkatkan nilai ini.',
+    setAiReasoningEffort: 'Usaha penaakulan',
+    setAiReasoningEffortDesc:
+      'Hanya untuk OpenAI GPT-5.6 langsung. Tahap lebih tinggi boleh meningkatkan tugas kompleks, tetapi menambah kependaman dan penggunaan token.',
     setAiGskTools: 'Alat awan Genspark',
     setAiGskToolsDesc:
       'Carian web, penjanaan imej AI dan analisis media melalui awan Genspark dan menggunakan kredit; jika dimatikan, alat imej tidak tersedia dan carian menggunakan sumber percuma.',
@@ -3624,6 +3672,9 @@ export const strings = {
     setAiMaxTokens: 'מקסימום טוקנים לתשובה',
     setAiMaxTokensDesc:
       'תקציב פלט לסיבוב אחד. מודלי היסק מנצלים חלק ממנו לחשיבה, ואם הוא נגמר התשובה עלולה לחזור ריקה — במקרה כזה העלו את הערך.',
+    setAiReasoningEffort: 'מאמץ היסק',
+    setAiReasoningEffortDesc:
+      'רק בחיבור ישיר ל-OpenAI GPT-5.6. מאמץ גבוה יותר עשוי לשפר משימות מורכבות, אך מגדיל השהיה ושימוש בטוקנים.',
     setAiGskTools: 'כלי הענן של Genspark',
     setAiGskToolsDesc:
       'חיפוש ברשת, יצירת תמונות וניתוח מדיה עוברים דרך Genspark וצורכים קרדיטים; בכיבוי, כלי התמונות אינם זמינים והחיפוש משתמש במקורות חינמיים.',
@@ -3833,6 +3884,9 @@ export const strings = {
     setAiMaxTokens: 'अधिकतम आउटपुट टोकन',
     setAiMaxTokensDesc:
       'एक टर्न का आउटपुट बजट। रीज़निंग मॉडल इसका कुछ हिस्सा सोचने में खर्च करते हैं; बजट खत्म होने पर उत्तर खाली आ सकता है — ऐसा हो तो इसे बढ़ाएँ।',
+    setAiReasoningEffort: 'रीजनिंग प्रयास',
+    setAiReasoningEffortDesc:
+      'केवल सीधे OpenAI GPT-5.6 के लिए। अधिक प्रयास जटिल कार्यों की गुणवत्ता सुधार सकता है, लेकिन विलंब और टोकन उपयोग बढ़ाता है।',
     setAiGskTools: 'Genspark क्लाउड टूल',
     setAiGskToolsDesc:
       'वेब खोज, AI छवि निर्माण और मीडिया विश्लेषण Genspark क्लाउड से होते हैं और क्रेडिट खर्च करते हैं; बंद करने पर छवि टूल अनुपलब्ध होंगे और खोज मुफ्त स्रोतों का उपयोग करेगी।',
@@ -4037,6 +4091,9 @@ export const strings = {
     setAiMaxTokens: '單次輸出上限（tokens）',
     setAiMaxTokensDesc:
       '一次回合的輸出預算。推理模型會先消耗預算用於思考，預算用畢時回覆可能變成空白，遇到此情況請調高本項。',
+    setAiReasoningEffort: '推理強度',
+    setAiReasoningEffortDesc:
+      '僅適用於直接連線的 OpenAI GPT-5.6。較高強度可提升複雜任務品質，但會增加延遲與 token 用量。',
     setAiGskTools: 'Genspark 雲端工具',
     setAiGskToolsDesc:
       '網頁搜尋、AI 生圖、媒體分析經 Genspark 雲端並消耗點數；關閉後生圖與媒體分析不可用，搜尋改用免費來源。',

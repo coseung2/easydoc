@@ -9,6 +9,7 @@ export type {
   AiStreamRequest,
   GenSparkAccountStatus,
   LegacyAiSettings,
+  OpenAiReasoningEffort,
 } from './types'
 export {
   AI_PROVIDERS,

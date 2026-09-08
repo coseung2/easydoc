@@ -103,6 +103,44 @@ describe('streamForProvider: temperature policy', () => {
     expect(bodies[1].max_tokens).toBe(100)
     expect('max_completion_tokens' in bodies[1]).toBe(false)
   })
+
+  it('sends configured reasoning_effort only to direct OpenAI GPT-5.6', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(okTurn()))
+    vi.stubGlobal('fetch', fetchMock)
+    await streamForProvider(
+      'openai',
+      { apiKey: 'k', model: 'gpt-5.6-luna', reasoningEffort: 'high' },
+      'sys',
+      [],
+      [],
+      100,
+      collector().cb,
+    )
+    await streamForProvider(
+      'openai',
+      { apiKey: 'k', model: 'gpt-5.4' },
+      'sys',
+      [],
+      [],
+      100,
+      collector().cb,
+    )
+    await streamForProvider(
+      'genspark',
+      { apiKey: 'k', model: 'gpt-5.6-luna', reasoningEffort: 'max' },
+      'sys',
+      [],
+      [],
+      100,
+      collector().cb,
+    )
+    const bodies = fetchMock.mock.calls.map((call) =>
+      JSON.parse((call[1] as RequestInit).body as string),
+    )
+    expect(bodies[0].reasoning_effort).toBe('high')
+    expect('reasoning_effort' in bodies[1]).toBe(false)
+    expect('reasoning_effort' in bodies[2]).toBe(false)
+  })
 })
 
 describe('streamForProvider: empty SSE streams surface as errors', () => {

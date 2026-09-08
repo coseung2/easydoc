@@ -24,11 +24,15 @@ export interface GenSparkAccountStatus {
   email?: string
 }
 
+export type OpenAiReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 export interface AiProviderConfig {
   apiKey: string
   model: string
   /** required for custom; for other direct providers it overrides the default endpoint (regional mirrors) */
   baseUrl?: string | undefined
+  /** Direct OpenAI GPT-5.6 only; omitted lets the API use the model default (medium). */
+  reasoningEffort?: OpenAiReasoningEffort | undefined
 }
 
 export interface AiProviderMeta {
