@@ -19,6 +19,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
+    "@genoffice/agent-core": "*",
     "parse5": "^8.0.1"
   }
 }

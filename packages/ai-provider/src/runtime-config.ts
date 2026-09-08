@@ -1,4 +1,5 @@
 import type { AiProviderConfig, AiProviderId } from './types'
+import { normalizeReasoningEffort } from './reasoning'
 
 export interface OAuthCredentials {
   accessToken: string
@@ -54,7 +55,13 @@ export async function runtimeAiConfig(
 ): Promise<RuntimeAiConfig> {
   signal?.throwIfAborted()
   if (config.authMode !== 'oauth') {
-    return { apiKey: config.apiKey, model: config.model, baseUrl: config.baseUrl }
+    const reasoningEffort = normalizeReasoningEffort(config.reasoningEffort)
+    return {
+      apiKey: config.apiKey,
+      model: config.model,
+      baseUrl: config.baseUrl,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+    }
   }
   if (provider !== 'openai') throw new Error('OAuth is not supported for this provider.')
   if (!resolveOAuthCredentials) throw new Error('Sign in to ChatGPT in GenOffice Settings.')

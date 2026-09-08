@@ -1,6 +1,7 @@
 import { ANTHROPIC_BASE_URL } from './protocols/anthropic'
 import { GEMINI_BASE_URL } from './protocols/gemini'
 import { AI_PROVIDERS, GENSPARK_LLM_BASE_URLS } from './providers'
+import { normalizeReasoningEffort } from './reasoning'
 import type { AiProviderConfig, AiProviderId, AiProviderMeta } from './types'
 
 /** The three wire protocols every provider maps onto. */
@@ -175,11 +176,8 @@ export const AI_PROVIDER_ADAPTERS: Record<AiProviderId, ProviderAdapter> = {
     // reasoning_effort is intentionally direct-OpenAI + GPT-5.6 only: the Genspark proxy and arbitrary
     // compatible endpoints may reject provider-specific request fields.
     resolveEndpoint(config) {
-      const effort = config.reasoningEffort
-      const supportsConfiguredEffort =
-        /^gpt-5\.6(?:-|$)/.test(config.model) &&
-        effort !== undefined &&
-        ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(effort)
+      const effort = normalizeReasoningEffort(config.reasoningEffort)
+      const supportsConfiguredEffort = /^gpt-5\.6(?:-|$)/.test(config.model) && effort !== undefined
       return {
         protocol: 'openai-compatible',
         baseUrl: config.baseUrl || 'https://api.openai.com/v1',

@@ -26,6 +26,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@genoffice/agent-core": "*",
     "@genoffice/i18n": "*",
     "@genoffice/pptx-render": "*"
   }

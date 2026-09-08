@@ -13,7 +13,18 @@ export type {
 } from './types'
 export { composeSkills } from './skill'
 export type { AgentSkill, ExecutedToolCall } from './skill'
-export { createUserSkillsSkill } from './user-skills'
+export {
+  createUserSkillsSkill,
+  isUserSkillId,
+  mentionedSkillIds,
+  skillMentionQuery,
+  userSkillsForApp,
+  USER_SKILL_APPS,
+  MAX_USER_SKILLS,
+  MAX_USER_SKILL_CHARS,
+  MAX_ACTIVE_SKILL_CHARS,
+  MAX_EXPLICIT_SKILLS,
+} from './user-skills'
 export type { UserSkillApp, UserSkillDefinition } from './user-skills'
 export {
   AgentLoop,

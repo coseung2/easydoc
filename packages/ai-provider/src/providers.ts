@@ -1,4 +1,5 @@
 import type { AiProviderId, AiProviderMeta, AiSettings, LegacyAiSettings } from './types'
+import { normalizeReasoningEffort } from './reasoning'
 
 /**
  * Genspark server-side LLM proxy endpoints. All three protocols share the
@@ -354,6 +355,7 @@ function trimConfigs(providers: AiSettings['providers']): AiSettings['providers'
   const trimmed = {} as AiSettings['providers']
   for (const meta of AI_PROVIDERS) {
     const config = providers[meta.id]
+    const reasoningEffort = normalizeReasoningEffort(config?.reasoningEffort)
     // A saved OpenAI choice without a key predates the auth-mode selector.
     // Keep it on the account-login route instead of silently changing providers.
     const oauth =
@@ -366,6 +368,7 @@ function trimConfigs(providers: AiSettings['providers']): AiSettings['providers'
       // Settings are public: accept only known fields, never runtime credentials.
       apiKey: oauth ? '' : typeof config?.apiKey === 'string' ? config.apiKey.trim() : '',
       model: typeof config?.model === 'string' ? config.model.trim() : meta.defaultModel,
+      ...(reasoningEffort ? { reasoningEffort } : {}),
       ...(oauth
         ? { authMode: 'oauth' as const }
         : {
