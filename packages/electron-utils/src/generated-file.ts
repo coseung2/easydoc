@@ -3,13 +3,12 @@ import { join } from 'node:path'
 
 /** Same filename policy on every OS; Windows reserved devices remain reserved with extensions. */
 export function generatedFileStem(title: string): string {
-  // eslint-disable-next-line no-control-regex
   const characters = Array.from(
     String(title ?? '')
+      // eslint-disable-next-line no-control-regex -- reject controls in filenames on all platforms
       .replace(/[/\\:*?"<>|\u0000-\u001f]/g, '_')
       .trim(),
-  )
-    .slice(0, 80)
+  ).slice(0, 80)
   // Reserve space for a collision suffix and extension on 255-byte filesystems.
   let stem = ''
   for (const character of characters) {
