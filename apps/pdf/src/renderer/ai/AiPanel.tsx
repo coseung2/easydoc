@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement } from 'react'
 import { AgentLoop } from '@genoffice/agent-core'
-import type { AiSettings } from '@genoffice/ai-provider'
+import { aiRulesDirective, type AiSettings } from '@genoffice/ai-provider'
 import { AiComposer, AiTypingIndicator } from '@genoffice/ui'
 import { aiLangDirective, t as tGlobal, useI18n } from '../i18n/locale'
 import { Markdown } from '@genoffice/ui'
@@ -374,7 +374,7 @@ export function AiPanel({
     loopRef.current = new AgentLoop({
       transport: createElectronTransport(() => settingsRef.current!),
       skill: createPdfSkill(deps),
-      systemSuffix: () => aiLangDirective(langRef.current),
+      systemSuffix: () => aiLangDirective(langRef.current) + aiRulesDirective(settingsRef.current),
       events: {
         onText: (text) => {
           setPhase('replying')

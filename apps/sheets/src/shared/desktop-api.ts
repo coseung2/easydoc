@@ -20,6 +20,7 @@ import type {
   AiStreamRequest,
   GenSparkAccountStatus,
 } from '@genoffice/ai-provider'
+import { MAX_AI_RULES_CHARS } from '@genoffice/ai-provider'
 
 const MAX_RANGE_CELLS = 100_000
 const cellScalarSchema = z.union([z.string(), z.number().finite(), z.boolean(), z.null()])
@@ -2387,6 +2388,7 @@ export const aiSettingsInputSchema = z
   .object({
     provider: z.string().min(1),
     providers: z.record(z.string(), aiProviderConfigSchema),
+    aiRules: z.string().max(MAX_AI_RULES_CHARS).optional(),
     gskToolsEnabled: z.boolean().optional(),
     // bounds are enforced by clampMaxOutputTokens on read; the schema only
     // rejects nonsense (this object is .strict(), so an omitted key here would

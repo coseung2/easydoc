@@ -15,13 +15,16 @@ export {
   AI_PROVIDERS,
   DEFAULT_MAX_OUTPUT_TOKENS,
   GENSPARK_LLM_BASE_URLS,
+  MAX_AI_RULES_CHARS,
   MAX_MAX_OUTPUT_TOKENS,
   MIN_MAX_OUTPUT_TOKENS,
   activeProvider,
+  aiRulesDirective,
   clampMaxOutputTokens,
   cloudToolsEnabled,
   defaultAiSettings,
   maxOutputTokensOf,
+  normalizeAiRules,
   resolveAiSettings,
 } from './providers'
 export { AI_PROVIDER_ADAPTERS, getProviderAdapter, modelLacksVision } from './registry'

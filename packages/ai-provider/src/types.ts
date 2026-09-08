@@ -47,6 +47,8 @@ export interface AiProviderMeta {
 export interface AiSettings {
   provider: AiProviderId
   providers: Record<AiProviderId, AiProviderConfig>
+  /** Persistent user-authored instructions appended to every user-facing office agent prompt. */
+  aiRules?: string | undefined
   /**
    * Genspark cloud tools (web/image search via gsk, image generation, media
    * analysis). Default true; false makes tools skip the gsk backend entirely

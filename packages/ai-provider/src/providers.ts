@@ -236,7 +236,7 @@ export function defaultAiSettings(
       baseUrl: meta.needsBaseUrl ? '' : undefined,
     }
   }
-  return { provider: 'genspark', providers, gskToolsEnabled: true }
+  return { provider: 'genspark', providers, aiRules: '', gskToolsEnabled: true }
 }
 
 /** false only on an explicit opt-out; absent (pre-toggle settings files) means on */
@@ -302,6 +302,26 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 32768
 /** bounds accepted for AiSettings.maxOutputTokens: below the first a short answer cannot even finish, above the second one turn risks the whole context window */
 export const MIN_MAX_OUTPUT_TOKENS = 1024
 export const MAX_MAX_OUTPUT_TOKENS = 131072
+/** Persistent AI Rules are system-prompt text, so cap them before every use and on settings read. */
+export const MAX_AI_RULES_CHARS = 12_000
+
+export function normalizeAiRules(value: unknown): string {
+  return typeof value === 'string' ? value.trim().slice(0, MAX_AI_RULES_CHARS) : ''
+}
+
+/**
+ * System-prompt suffix for user-owned persistent rules. Core app/tool safety,
+ * correctness and data-integrity instructions remain authoritative.
+ */
+export function aiRulesDirective(settings: Pick<AiSettings, 'aiRules'> | null | undefined): string {
+  const rules = normalizeAiRules(settings?.aiRules)
+  if (!rules) return ''
+  return (
+    '\n\n# User AI Rules\n' +
+    "These are persistent instructions written by the user. Follow them unless they conflict with the app's tool, safety, data-integrity, or correctness rules above.\n\n" +
+    rules
+  )
+}
 
 /** Out-of-range or non-finite input falls back to a bound / the default (a mistyped settings field must not kill AI features) */
 export function clampMaxOutputTokens(value: unknown): number {
@@ -361,6 +381,7 @@ export function resolveAiSettings(
         baseUrl: (stored.baseUrl ?? 'https://api.openai.com/v1').trim(),
       }
     }
+    defaults.aiRules = normalizeAiRules(stored.aiRules ?? defaults.aiRules)
     return defaults
   }
   return {
@@ -368,6 +389,7 @@ export function resolveAiSettings(
     // Trim before migrating: a pasted " deepseek-reasoner " must still hit
     // the retired-id remap instead of being sent to the API verbatim.
     providers: migrateRetiredModels(trimConfigs({ ...defaults.providers, ...stored.providers })),
+    aiRules: normalizeAiRules(stored.aiRules ?? defaults.aiRules),
     gskToolsEnabled: stored.gskToolsEnabled ?? defaults.gskToolsEnabled ?? true,
     // clamped on read: a hand-edited settings file with an absurd cap must not be
     // forwarded to the endpoint verbatim

@@ -132,7 +132,7 @@ import {
   composeSkills,
   type AgentImage,
 } from '@genoffice/agent-core'
-import type { AiSettings } from '@genoffice/ai-provider'
+import { aiRulesDirective, type AiSettings } from '@genoffice/ai-provider'
 import {
   copyTargetBounds,
   filteredCopySourceRows,
@@ -1095,7 +1095,7 @@ export function App(): React.JSX.Element {
   if (!agentLoopRef.current) {
     agentLoopRef.current = new AgentLoop({
       transport: createElectronTransport(() => aiSettingsRef.current!),
-      systemSuffix: aiLangDirective,
+      systemSuffix: () => aiLangDirective() + aiRulesDirective(aiSettingsRef.current),
       skill: composeSkills('sheets+files', '', [
         createWorkbookSkill(sheetsSkillDeps()),
         createFilesSkill(availableAttachments),

@@ -390,6 +390,16 @@
   color: var(--text-tertiary, var(--text-secondary));
 }
 
+.set-ai-rules-field {
+  align-items: flex-start;
+}
+
+.set-ai-rules-input {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
 .set-ai-note {
   padding: 8px 0 2px;
   line-height: 1.5;

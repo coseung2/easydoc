@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
 import { AgentLoop, composeSkills } from '@genoffice/agent-core'
-import type { AiSettings } from '@genoffice/ai-provider'
+import { aiRulesDirective, type AiSettings } from '@genoffice/ai-provider'
 import { AiComposer, AiTypingIndicator, Markdown } from '@genoffice/ui'
 import type { Editor } from '@tiptap/core'
 import { aiLangDirective, t as tGlobal, useI18n } from '../i18n/locale'
@@ -220,7 +220,7 @@ export function AiPanel({
         createSearchSkill(),
       ]),
       captureSnapshot: () => depsRef.current.getSnapshot(),
-      systemSuffix: () => aiLangDirective(langRef.current),
+      systemSuffix: () => aiLangDirective(langRef.current) + aiRulesDirective(settingsRef.current),
       events: {
         onText: (text) => patchLast({ text }),
         onToolStart: (call) => {

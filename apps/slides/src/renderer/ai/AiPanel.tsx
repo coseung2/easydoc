@@ -6,6 +6,7 @@ import {
   type AgentImage,
   type ToolDisplay,
 } from '@genoffice/agent-core'
+import { aiRulesDirective } from '@genoffice/ai-provider'
 import type { RenderSlide } from '@genoffice/pptx-render'
 import type { AiSettings, AttachmentAddResult, AttachmentMeta } from '../../shared/ipc'
 import { ATTACHMENT_IMAGE_EXTS } from '../../shared/ipc'
@@ -1323,7 +1324,7 @@ export function AiPanel({
     accessRef.current = access
     loopRef.current = new AgentLoop({
       transport: createElectronTransport(() => settingsRef.current),
-      systemSuffix: aiLangDirective,
+      systemSuffix: () => aiLangDirective() + aiRulesDirective(settingsRef.current),
       skill: composeSkills('slides+files', '', [
         createSlidesSkill(access),
         createFilesSkill(availableAttachments, (path) => readAttachmentPathsRef.current.add(path)),
@@ -1779,7 +1780,7 @@ export function AiPanel({
           transport,
           pageIndex: page,
           screenshot: shot,
-          systemSuffix: aiLangDirective,
+          systemSuffix: () => aiLangDirective() + aiRulesDirective(settingsRef.current),
           signal: controller.signal,
         })
         if (shot && result.error && isUnsupportedImageInputError(result.error)) {
@@ -1789,7 +1790,7 @@ export function AiPanel({
             transport,
             pageIndex: page,
             screenshot: null,
-            systemSuffix: aiLangDirective,
+            systemSuffix: () => aiLangDirective() + aiRulesDirective(settingsRef.current),
             signal: controller.signal,
           })
         }

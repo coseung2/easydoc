@@ -3,12 +3,15 @@ import {
   AI_PROVIDERS,
   DEFAULT_MAX_OUTPUT_TOKENS,
   MAX_MAX_OUTPUT_TOKENS,
+  MAX_AI_RULES_CHARS,
   MIN_MAX_OUTPUT_TOKENS,
   activeProvider,
+  aiRulesDirective,
   clampMaxOutputTokens,
   cloudToolsEnabled,
   defaultAiSettings,
   maxOutputTokensOf,
+  normalizeAiRules,
   resolveAiSettings,
 } from '../src/providers'
 import type { AiProviderId } from '../src/types'
@@ -23,12 +26,29 @@ describe('defaultAiSettings', () => {
     }
     expect(settings.providers.custom.baseUrl).toBe('')
     expect(settings.providers.anthropic.baseUrl).toBeUndefined()
+    expect(settings.aiRules).toBe('')
   })
 
   it('applies caller-supplied default keys only to the listed providers', () => {
     const settings = defaultAiSettings({ anthropic: 'sk-ant-preset' })
     expect(settings.providers.anthropic.apiKey).toBe('sk-ant-preset')
     expect(settings.providers.gemini.apiKey).toBe('')
+  })
+})
+
+describe('AI Rules', () => {
+  it('normalizes, caps, persists, and formats persistent user rules', () => {
+    expect(normalizeAiRules('  Keep answers concise.  ')).toBe('Keep answers concise.')
+    expect(normalizeAiRules('x'.repeat(MAX_AI_RULES_CHARS + 50))).toHaveLength(MAX_AI_RULES_CHARS)
+
+    const resolved = resolveAiSettings(
+      { providers: {} as never, aiRules: '  Never invent figures.  ' },
+      defaultAiSettings(),
+    )
+    expect(resolved.aiRules).toBe('Never invent figures.')
+    expect(aiRulesDirective(resolved)).toContain('# User AI Rules')
+    expect(aiRulesDirective(resolved)).toContain('Never invent figures.')
+    expect(aiRulesDirective({ aiRules: '   ' })).toBe('')
   })
 })
 

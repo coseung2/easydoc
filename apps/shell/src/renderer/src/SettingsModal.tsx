@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Dropdown } from '@genoffice/ui'
 import {
   DEFAULT_MAX_OUTPUT_TOKENS,
+  MAX_AI_RULES_CHARS,
   MAX_MAX_OUTPUT_TOKENS,
   MIN_MAX_OUTPUT_TOKENS,
   clampMaxOutputTokens,
@@ -385,6 +386,27 @@ function AiModelPane({ t }: { t: TFunc }) {
           value={maxTokensDraft ?? String(settings.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS)}
           onChange={(e) => setMaxTokensDraft(e.target.value)}
           onBlur={commitMaxTokens}
+        />
+      </div>
+      <div className="set-field set-ai-rules-field">
+        <div className="set-field-text">
+          <div className="set-field-stack">
+            <label className="set-field-label" htmlFor="set-ai-rules">
+              {t('setAiRules')}
+            </label>
+            <div className="set-field-desc">{t('setAiRulesDesc')}</div>
+          </div>
+        </div>
+        <textarea
+          id="set-ai-rules"
+          className="set-input set-ai-rules-input"
+          value={settings.aiRules ?? ''}
+          maxLength={MAX_AI_RULES_CHARS}
+          spellCheck
+          onChange={(e) => {
+            setSettings({ ...settings, aiRules: e.target.value })
+            touch()
+          }}
         />
       </div>
       <div className="set-field">
