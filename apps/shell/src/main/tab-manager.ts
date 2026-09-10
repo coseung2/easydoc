@@ -154,9 +154,9 @@ export class TabManager {
 
   openDocsTab(
     openPath?: string,
-    options?: { newBlank?: boolean; aiContent?: AiDocContent },
+    options?: { newBlank?: boolean; aiContent?: AiDocContent; outputFormat?: 'hwpx' },
   ): string {
-    const view = createDocsView(openPath)
+    const view = createDocsView(openPath, options?.outputFormat)
     const id = `t${this.nextId++}`
     if (options?.newBlank) markDocsNewBlank(view.webContents.id)
     if (options?.aiContent) queueDocsAiContent(view.webContents.id, options.aiContent)

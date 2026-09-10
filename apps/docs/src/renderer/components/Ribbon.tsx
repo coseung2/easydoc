@@ -37,7 +37,6 @@ import {
   ColorPicker,
   Dropdown,
   RibbonCollapseButton,
-  isSymbolFontFamily,
   useDismissablePopover,
   useRibbonCollapse,
 } from '@genoffice/ui'
@@ -61,7 +60,7 @@ import {
 import { useI18n, type StringKey } from '../i18n/locale'
 import { fontFamiliesFor, isEastAsianFontName } from '../font-list'
 import { useSystemFontFamilies } from '../system-fonts'
-import { cssFontFamily } from '../line-metrics'
+import { FontFamilyMenu } from './FontFamilyMenu'
 import {
   DesignTab,
   DrawTab,
@@ -3065,49 +3064,13 @@ function RibbonInner({
                       <IconCaret />
                     </button>
                     {dropdown === 'fontFamily' && (
-                      <div data-rb-panel="" className="spacing-menu rb-font-family-menu">
-                        <button
-                          className={!currentFont ? 'active' : ''}
-                          style={{ fontFamily: cssFontFamily(bodyFontName) }}
-                          onClick={() => setFont(null)}
-                        >
-                          {t('ribbonFontBodyNamed', { font: bodyFontName })}
-                        </button>
-                        {fontFamilies
-                          .filter((f) => f !== bodyFontName)
-                          .map((f) => (
-                            <button
-                              key={f}
-                              className={f === currentFont ? 'active' : ''}
-                              style={{ fontFamily: cssFontFamily(f) }}
-                              onClick={() => setFont(f)}
-                            >
-                              {f}
-                            </button>
-                          ))}
-                        {systemFontFamilies.length > 0 && (
-                          <>
-                            <div className="rb-menu-group-label">{t('ribbonFontsSystem')}</div>
-                            {systemFontFamilies
-                              .filter((f) => f !== bodyFontName)
-                              .map((f) => (
-                                <button
-                                  key={f}
-                                  className={f === currentFont ? 'active' : ''}
-                                  // symbol fonts would render their own name as pictographs
-                                  style={{
-                                    fontFamily: isSymbolFontFamily(f)
-                                      ? undefined
-                                      : cssFontFamily(f),
-                                  }}
-                                  onClick={() => setFont(f)}
-                                >
-                                  {f}
-                                </button>
-                              ))}
-                          </>
-                        )}
-                      </div>
+                      <FontFamilyMenu
+                        builtins={fontFamilies}
+                        system={systemFontFamilies}
+                        current={currentFont}
+                        body={bodyFontName}
+                        onPick={setFont}
+                      />
                     )}
                   </div>
                   <div className="rb-split-wrap">

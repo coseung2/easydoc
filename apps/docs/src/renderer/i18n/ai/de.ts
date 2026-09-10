@@ -1,6 +1,17 @@
 import type { zh } from './zh'
 
 export const de = {
+  fontNotInstalled: 'Not installed',
+  fontSearch: 'Search fonts',
+  fontFavorites: 'Favorites',
+  fontBasic: 'Basic fonts',
+  fontFavoriteAdd: 'Add favorite',
+  fontFavoriteRemove: 'Remove favorite',
+  fontShowSystem: 'Show system fonts',
+  fontHideSystem: 'Hide system fonts',
+  aiHwpxTitle: 'Create a HWPX document',
+  aiHwpxBody: 'Describe the document you need, or attach reference material.',
+  aiHwpxSaveHint: 'The document is saved as a .hwpx file. Open it in Hancom Hangul to review it.',
   aiEmptyDraftTitle: 'Lass die KI dieses Dokument für dich entwerfen',
   aiEmptyDraftBody1: 'Beschreibe Thema und Kernpunkte oder füge Referenzmaterial ein;',
   aiEmptyDraftBody2: 'die KI schreibt den ersten Entwurf direkt auf die Seite.',

@@ -114,7 +114,9 @@ const api: DesktopApi = {
   fetchImage: (url: string) => ipcRenderer.invoke('ai:fetch-image', url),
   aiGenerateImage: (op: { prompt: string; aspectRatio?: string }) =>
     ipcRenderer.invoke('docs:ai-generate-image', op),
-  pickAttachments: () => ipcRenderer.invoke('files:pick'),
+    saveHwpx: (html: string, saveAs: boolean) => ipcRenderer.invoke('docs:save-hwpx', html, saveAs),
+  previewHwpx: (force?: boolean) => ipcRenderer.invoke('docs:preview-hwpx', force === true),
+    pickAttachments: () => ipcRenderer.invoke('files:pick'),
   addAttachmentPaths: (paths: string[]) => ipcRenderer.invoke('files:add', paths),
   addPastedImage: (data: ArrayBuffer, ext: string) =>
     ipcRenderer.invoke('files:add-pasted-image', data, ext),

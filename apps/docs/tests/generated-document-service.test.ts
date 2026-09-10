@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { inspectGeneratedHwpx } from '@genoffice/hwpx-engine'
+import { inspectGeneratedHwpx, parseHwpxHtml } from '@genoffice/hwpx-engine'
 import { createGeneratedDocument, type GeneratedDocumentHost } from '../src/main/generated-document'
 
 const roots: string[] = []
@@ -38,6 +38,44 @@ describe('isolated document generation service', () => {
     expect(host.openGenerated).not.toHaveBeenCalled()
     expect(host.openDocx).not.toHaveBeenCalled()
   })
+
+  it('opens the written document, not the request content, in the HWPX editor tab', async () => {
+    const { host } = await setup()
+    const openHwpx = vi.fn()
+    host.openHwpx = openHwpx
+    // <ul> is flattened into indented paragraphs while writing: the tab must
+    // receive that normalized form, or a zero-edit save would renumber the list.
+    const content = '<h1>보고서</h1><ul><li>첫째</li></ul>'
+    const result = await createGeneratedDocument(
+      { type: 'hwpx', title: '보고서', content },
+      host,
+    )
+    expect(result).toMatchObject({ ok: true, opened: true })
+    expect(host.reveal).not.toHaveBeenCalled()
+    const [title, html, path] = openHwpx.mock.calls[0]!
+    expect(title).toBe('보고서')
+    expect(path).toBe(result.path)
+    expect(html).not.toBe(content)
+    expect(html).not.toContain('<ul')
+    // the opened HTML describes the same document the file holds
+    expect(parseHwpxHtml(html).blocks).toHaveLength(2)
+    expect(html).toContain('• ')
+  })
+
+  it('reports a saved file with a warning when the HWPX tab cannot be opened', async () => {
+    const { host } = await setup()
+    host.openHwpx = () => {
+      throw new Error('no tab host')
+    }
+    const result = await createGeneratedDocument(
+      { type: 'hwpx', title: 'T', content: '<p>x</p>' },
+      host,
+    )
+    expect(result).toMatchObject({ ok: true, opened: false })
+    expect(result.warnings?.join(' ')).toContain('could not be opened or revealed')
+    expect(await readFile(result.path!)).not.toHaveLength(0)
+  })
+
   it('keeps DOCX on the existing queued editor path', async () => {
     const { dir, host } = await setup()
     expect(

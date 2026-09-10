@@ -1554,6 +1554,10 @@ export function Home() {
     void window.aiOffice.newDoc(selectedProjectId ? { projectId: selectedProjectId } : undefined)
   }
 
+  const handleNewHwpx = () => {
+    void window.aiOffice.newDoc({ projectId: selectedProjectId || undefined, outputFormat: 'hwpx' })
+  }
+
   const handleNewSheet = () => {
     void window.aiOffice.newSheet(selectedProjectId ? { projectId: selectedProjectId } : undefined)
   }
@@ -1578,6 +1582,7 @@ export function Home() {
     { ext: 'pptx', title: t('newSlide'), sub: '.pptx', action: handleNewSlide },
     { ext: 'md', title: t('newMarkdown'), sub: '.md', action: handleNewMarkdown },
     { ext: 'pdf', title: t('newPdf'), sub: '.pdf', action: handleNewPdf },
+    { ext: 'hwpx', title: t('newHwpx'), sub: '.hwpx', action: handleNewHwpx },
   ]
 
   function renderQuickCards() {

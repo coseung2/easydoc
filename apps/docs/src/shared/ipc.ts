@@ -166,9 +166,34 @@ export type CreateDocumentResult = import('@genoffice/agent-core').GeneratedDocu
 export interface AiDocContent {
   title: string
   html: string
+  hwpxPath?: string
 }
 
+/**
+ * Hancom-rendered preview of the saved HWPX bound to the calling tab.
+ *
+ * The bytes are a PDF rendered by the locally installed Hancom Office from the
+ * file already on disk, so a success only proves that this document opened and
+ * exported on this machine — it is not a general HWPX interoperability claim.
+ * Failure is expected (no Hancom, a security prompt, a timeout) and callers
+ * must keep editing and saving HWPX regardless.
+ */
+export type HwpxPreviewResponse =
+  | {
+      ok: true
+      bytes: Uint8Array
+      /** SHA-256 of the saved file this PDF was rendered from. */
+      sourceHash: string
+      hancomVersion: string
+      /** True when a cached render for the same bytes was reused. */
+      cached: boolean
+    }
+  | { ok: false; error: string }
+
 export interface DesktopApi {
+  saveHwpx(html: string, saveAs: boolean): Promise<{ok: boolean; path?: string; error?: string}>
+  /** Render this tab's saved HWPX with installed Hancom; force skips the cache. */
+  previewHwpx(force?: boolean): Promise<HwpxPreviewResponse>
   /** current UI language (persisted by the shell in app-settings.json) */
   getLanguage(): Promise<'zh' | 'en' | 'ja' | 'ko' | 'fr' | 'de' | 'es' | 'th' | 'id' | 'ru' | 'ar'>
   /** language switched from the shell home page */

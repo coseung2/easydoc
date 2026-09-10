@@ -1,6 +1,14 @@
 import { parseFragment, type DefaultTreeAdapterMap } from 'parse5'
 import { embeddedImage } from './images'
-import { DEFAULT_TEXT_STYLE, HWPX_LIMITS } from './model'
+import {
+  DEFAULT_TEXT_STYLE,
+  HWPX_COLUMN_WIDTH_SCALE,
+  HWPX_INDENT_PT,
+  HWPX_LIMITS,
+  HWPX_MAX_INDENT,
+  HWPX_MIN_COLUMN_SHARE,
+  distributeWidths,
+} from './model'
 import type { Block, GeneratedDocument, Inline, Paragraph, TextStyle } from './model'
 
 type Node = DefaultTreeAdapterMap['node']
@@ -25,6 +33,8 @@ const ALLOWED = new Set([
   'ol',
   'li',
   'table',
+  'colgroup',
+  'col',
   'thead',
   'tbody',
   'tfoot',
@@ -46,6 +56,8 @@ const ATTRIBUTES = new Set([
   'dir',
   'title',
 ])
+/** `<col>` carries only width information; `<colgroup>` carries none. */
+const COL_ATTRIBUTES = new Set(['style', 'width', 'span'])
 
 interface Format {
   text: TextStyle
@@ -71,7 +83,7 @@ function sizePt(value: string): number {
   return size
 }
 
-function formatFor(node: Element, parent: Format): Format {
+function formatFor(node: Element, parent: Format, warn?: (message: string) => void): Format {
   const format: Format = { ...parent, text: { ...parent.text } }
   const tag = node.tagName
   if (/^h[1-6]$/.test(tag)) {
@@ -102,7 +114,8 @@ function formatFor(node: Element, parent: Format): Format {
           .split(',')[0]!
           .trim()
           .replace(/^['"]|['"]$/g, '')
-        if (!font || font.length > 100 || /[<>\\]/.test(font))
+        // ';' and quotes would not survive re-parsing of normalized inline CSS.
+        if (!font || font.length > 100 || /[<>\\;'"]/.test(font))
           throw new Error('Invalid font family.')
         format.text.font = /^(Malgun Gothic|맑은고딕)$/i.test(font) ? '맑은 고딕' : font
         break
@@ -145,6 +158,19 @@ function formatFor(node: Element, parent: Format): Format {
         format.lineHeight = n
         break
       }
+      case 'margin-left': {
+        // Paragraph indentation is level-based (one level = 14 pt / 1400 HWPUNIT),
+        // so a length is quantized to the nearest level instead of being dropped.
+        const match = /^(\d+(?:\.\d+)?)(pt|px)?$/.exec(value)
+        const pt = match ? Number(match[1]) * (match[2] === 'px' ? 0.75 : 1) : NaN
+        if (!Number.isFinite(pt) || pt > 1000)
+          throw new Error('margin-left must be 0–1000 pt (or equivalent px).')
+        const level = Math.min(HWPX_MAX_INDENT, Math.round(pt / HWPX_INDENT_PT))
+        if (Math.abs(level * HWPX_INDENT_PT - pt) > 0.5)
+          warn?.('Paragraph indentation was rounded to whole 14 pt levels.')
+        format.indent = level
+        break
+      }
       default:
         throw new Error(
           `Unsupported HWPX CSS property: ${key}. Remove it rather than assuming fidelity.`,
@@ -152,6 +178,64 @@ function formatFor(node: Element, parent: Format): Format {
     }
   }
   return format
+}
+
+/**
+ * Explicit column widths from a leading `<colgroup>`. Supported forms per `<col>`:
+ * `style="width:25%"`, `style="width:120px"`, `style="width:90pt"` or `width="120"`
+ * (pixels), optionally repeated with `span="n"`. Percent and length forms must not
+ * be mixed inside one table, and either every column is declared or none are.
+ * Lengths are converted to points before the ratio is taken, so `72pt` and `96px`
+ * describe the same column width.
+ *
+ * The result is the canonical grid: shares of `HWPX_COLUMN_WIDTH_SCALE` summing to
+ * exactly that scale, each at least `HWPX_MIN_COLUMN_SHARE`. Both the writer and
+ * the normalized HTML use these numbers, so a clamped column is visible in the
+ * editor instead of being applied only to the written file.
+ */
+function columnWidths(group: Element, warn: (message: string) => void): number[] {
+  const weights: number[] = []
+  let unit: '%' | 'length' | null = null
+  for (const child of children(group)) {
+    if (!element(child)) {
+      if ('value' in child && child.value.trim()) throw new Error('Invalid colgroup content.')
+      continue
+    }
+    if (child.tagName !== 'col') throw new Error('colgroup may contain only col elements.')
+    const declarations = (attr(child, 'style') ?? '').split(';').filter((s) => s.trim())
+    let width: string | undefined
+    for (const declaration of declarations) {
+      const colon = declaration.indexOf(':')
+      if (colon < 1) throw new Error('Invalid inline CSS in HWPX input.')
+      const key = declaration.slice(0, colon).trim().toLowerCase()
+      if (key !== 'width') throw new Error(`Unsupported HWPX col CSS property: ${key}.`)
+      width = declaration.slice(colon + 1).trim()
+    }
+    width ??= attr(child, 'width')
+    if (width === undefined) throw new Error('Every HWPX col must declare a width, or none may.')
+    const match = /^(\d+(?:\.\d+)?)(%|px|pt)?$/.exec(width)
+    if (!match) throw new Error('HWPX column widths must be positive % or px/pt lengths.')
+    const declared = Number(match[1])
+    const percent = match[2] === '%'
+    // px and pt are the same physical quantity; compare them in points.
+    const value = percent ? declared : declared * (match[2] === 'pt' ? 1 : 0.75)
+    if (!(value > 0) || (percent ? declared > 100 : declared > 20_000))
+      throw new Error('HWPX column widths must be positive % or px/pt lengths.')
+    const next = percent ? '%' : 'length'
+    if (unit && unit !== next) throw new Error('HWPX column widths cannot mix % and lengths.')
+    unit = next
+    const span = attr(child, 'span') ?? '1'
+    if (!/^\d+$/.test(span) || Number(span) < 1 || Number(span) > HWPX_LIMITS.tableColumns)
+      throw new Error('Invalid col span.')
+    for (let i = 0; i < Number(span); i++) weights.push(value)
+  }
+  if (!weights.length) throw new Error('An HWPX colgroup must declare at least one column.')
+  if (weights.length > HWPX_LIMITS.tableColumns) throw new Error('Too many HWPX table columns.')
+  warn('Table column widths are kept in proportion; the table spans the text width.')
+  const sum = weights.reduce((a, b) => a + b, 0)
+  if (weights.some((weight) => (weight * HWPX_COLUMN_WIDTH_SCALE) / sum < HWPX_MIN_COLUMN_SHARE))
+    warn('Very narrow table columns were widened to a readable minimum width.')
+  return distributeWidths(HWPX_COLUMN_WIDTH_SCALE, weights, HWPX_MIN_COLUMN_SHARE)
 }
 
 /** Bounded, passive HTML subset. Unsupported semantic content fails instead of disappearing. */
@@ -177,7 +261,13 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
       if (!ALLOWED.has(node.tagName))
         throw new Error(`Unsupported HWPX element: <${node.tagName}>.`)
       for (const attribute of node.attrs) {
-        if (!ATTRIBUTES.has(attribute.name) || attribute.namespace)
+        const allowed =
+          node.tagName === 'col'
+            ? COL_ATTRIBUTES.has(attribute.name)
+            : node.tagName === 'colgroup'
+              ? false
+              : ATTRIBUTES.has(attribute.name)
+        if (!allowed || attribute.namespace)
           throw new Error(`Unsupported HWPX attribute: ${attribute.name}.`)
         if (attribute.name === 'dir' && attribute.value !== 'ltr')
           throw new Error('Only left-to-right HWPX generation is supported.')
@@ -186,15 +276,21 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
     for (const child of children(node)) stack.push({ node: child, depth: depth + 1 })
   }
   const warnings = new Set<string>()
+  const warn = (message: string) => void warnings.add(message)
   const paragraph = (runs: Inline[], format: Format): Paragraph => {
     if (++blockCount > HWPX_LIMITS.blocks) throw new Error('Too many HWPX paragraphs/blocks.')
+    if (format.indent > HWPX_MAX_INDENT)
+      warn('Indentation deeper than 8 levels was flattened to the 8th level.')
     return {
       kind: 'paragraph',
       runs,
       align: format.align,
       lineHeight: format.lineHeight,
       heading: format.heading,
-      indent: format.indent,
+      // Clamped once here so the model, the written bytes and the normalized
+      // HTML all describe the same indentation.
+      indent: Math.min(format.indent, HWPX_MAX_INDENT),
+      pre: format.pre,
     }
   }
   const inline = (list: Node[], format: Format): Inline[] => {
@@ -205,7 +301,7 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
         const text = format.pre ? node.value : node.value.replace(/[\t\n\r ]+/g, ' ')
         if (text) out.push({ kind: 'text', text, style: { ...format.text } })
       } else if (element(node)) {
-        const next = formatFor(node, format)
+        const next = formatFor(node, format, warn)
         if (node.tagName === 'br') out.push({ kind: 'text', text: '\n', style: { ...next.text } })
         else if (node.tagName === 'img') {
           const image = embeddedImage(
@@ -245,11 +341,13 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
         continue
       }
       flush()
-      const next = formatFor(node, format)
+      if (node.tagName === 'colgroup' || node.tagName === 'col')
+        throw new Error('A colgroup may appear only inside a table.')
+      const next = formatFor(node, format, warn)
       if (node.tagName === 'div' || node.tagName === 'blockquote')
         out.push(...blocks(children(node), next, inCell))
       else if (node.tagName === 'ul' || node.tagName === 'ol') {
-        warnings.add('Lists use editable text markers, not automatic HWP numbering.')
+        warn('Lists use editable text markers, not automatic HWP numbering.')
         let number = Number(attr(node, 'start') ?? 1)
         if (!Number.isInteger(number) || number < 1 || number > 100_000)
           throw new Error('Invalid ordered-list start.')
@@ -259,7 +357,7 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
             continue
           }
           if (li.tagName !== 'li') throw new Error('Lists may contain only li elements.')
-          const formatLi = formatFor(li, { ...next, indent: next.indent + 1 })
+          const formatLi = formatFor(li, { ...next, indent: next.indent + 1 }, warn)
           const items = blocks(children(li), formatLi, inCell)
           if (items.some((b) => b.kind === 'table'))
             throw new Error('Tables inside lists are not supported.')
@@ -275,13 +373,18 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
       } else if (node.tagName === 'table') {
         if (inCell) throw new Error('Nested HWPX tables are not supported.')
         const rowNodes: Element[] = []
+        let declaredWidths: number[] | undefined
         for (const child of children(node)) {
           if (!element(child)) {
             if ('value' in child && child.value.trim()) throw new Error('Invalid table content.')
             continue
           }
           if (child.tagName === 'tr') rowNodes.push(child)
-          else if (['thead', 'tbody', 'tfoot'].includes(child.tagName)) {
+          else if (child.tagName === 'colgroup') {
+            if (declaredWidths || rowNodes.length)
+              throw new Error('A colgroup must appear once before the table rows.')
+            declaredWidths = columnWidths(child, warn)
+          } else if (['thead', 'tbody', 'tfoot'].includes(child.tagName)) {
             for (const row of children(child)) {
               if (element(row) && row.tagName === 'tr') rowNodes.push(row)
               else if (element(row) || ('value' in row && row.value.trim()))
@@ -290,7 +393,7 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
           } else throw new Error('Unsupported table child.')
         }
         const rows = rowNodes.map((row) => {
-          const rowFormat = formatFor(row, next)
+          const rowFormat = formatFor(row, next, warn)
           return children(row)
             .filter(element)
             .map((cell) => {
@@ -302,7 +405,7 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
                 )
               )
                 throw new Error('Merged HWPX cells are not yet supported.')
-              const cellFormat = formatFor(cell, rowFormat)
+              const cellFormat = formatFor(cell, rowFormat, warn)
               const content = blocks(children(cell), cellFormat, true)
               if (!content.length) content.push(paragraph([], cellFormat))
               return { header: cell.tagName === 'th', paragraphs: content as Paragraph[] }
@@ -317,7 +420,13 @@ export function parseHwpxHtml(html: string): GeneratedDocument {
           throw new Error(
             'HWPX tables must be non-empty rectangular grids with at most 32 columns.',
           )
-        out.push({ kind: 'table', rows })
+        if (declaredWidths && declaredWidths.length !== columns)
+          throw new Error('The HWPX colgroup must declare exactly one width per column.')
+        out.push({
+          kind: 'table',
+          rows,
+          ...(declaredWidths ? { columnWidths: declaredWidths } : {}),
+        })
       } else if (node.tagName === 'p' || node.tagName === 'pre' || /^h[1-6]$/.test(node.tagName)) {
         out.push(paragraph(inline(children(node), next), next))
       } else throw new Error(`Unexpected block <${node.tagName}> in HWPX content.`)

@@ -1,16 +1,32 @@
 import { strToU8, zipSync, type Zippable } from 'fflate'
 import { parseHwpxHtml } from './html'
+import { documentToHtml } from './serialize'
 import { writeOwnHwpx } from './ownhwpx-adapter'
 import type { HwpxWriteOptions } from './ownhwpx-adapter'
 import { inspectGeneratedHwpx } from './validate'
 
-export { HWPX_LIMITS } from './model'
+export {
+  HWPX_LIMITS,
+  HWPX_COLUMN_WIDTH_SCALE,
+  HWPX_MIN_COLUMN_SHARE,
+  HWPX_INDENT_PT,
+  HWPX_MAX_INDENT,
+} from './model'
 export { parseHwpxHtml } from './html'
+export { documentToHtml } from './serialize'
 export { inspectGeneratedHwpx } from './validate'
 export type { HwpxWriteOptions } from './ownhwpx-adapter'
+export type { Block, GeneratedDocument, Paragraph, TableBlock } from './model'
 
 export interface HwpxExportResult {
   bytes: Uint8Array
+  /**
+   * The written document normalized back into the supported HTML subset. It is
+   * serialized from the same parsed model that produced `bytes`, so the editor
+   * shows what the file actually contains. Re-exporting it without edits
+   * produces the same document (see `documentToHtml` for model limitations).
+   */
+  editorHtml: string
   warnings: string[]
   verification: 'structural-only'
 }
@@ -33,6 +49,7 @@ export function exportHwpx(html: string, options: HwpxWriteOptions): HwpxExportR
     throw new Error('Invalid characters in HWPX title.')
   const document = parseHwpxHtml(html)
   const raw = writeOwnHwpx(document, options)
+  const editorHtml = documentToHtml(document)
   const inspected = inspectGeneratedHwpx(raw)
   const preview = document.blocks
     .flatMap((block) =>
@@ -54,6 +71,7 @@ export function exportHwpx(html: string, options: HwpxWriteOptions): HwpxExportR
   inspectGeneratedHwpx(bytes)
   return {
     bytes,
+    editorHtml,
     warnings: [HWPX_EXPERIMENTAL_WARNING, ...document.warnings],
     verification: 'structural-only',
   }

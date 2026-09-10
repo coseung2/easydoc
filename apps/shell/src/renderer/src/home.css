@@ -373,7 +373,8 @@ body.vib .home {
 }
 
 .quick-cards {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
   align-items: stretch;
   gap: 10px;
 }
@@ -382,7 +383,7 @@ body.vib .home {
   position: relative;
   flex: 1;
   min-width: 0;
-  max-width: 280px;
+  max-width: none;
   overflow: hidden;
   display: flex;
   flex-direction: column;

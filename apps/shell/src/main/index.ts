@@ -113,6 +113,7 @@ import {
   setDocsShellWindow,
   setDocsFileSavedHook,
   setDocsFileOpenedHook,
+  setHwpxPreviewHook,
   setSessionPathResolver,
   defaultSaveDir,
   uniquePathIn,
@@ -160,7 +161,9 @@ import {
   setPdfSaveAsInFlight,
 } from '../../../pdf/src/main/pdf-main'
 import { PDF_CHANNELS } from '../../../pdf/src/shared/ipc'
-import { convertPdfFileToDocxLocalWithPrompt, PdfLoadError } from './pdf2docx-local'
+import { convertPdfFileToDocxLocalWithPrompt, PdfLoadError, readPdfAttachmentOcr } from './pdf2docx-local'
+import { readBundledPdfOcr } from './bundled-ocr'
+import { createHwpxPreviewService, type HwpxPreviewService } from './hwpx-preview'
 import { convertPdfFileToPptxLocalWithPrompt } from './pdf2pptx-local'
 import { convertPdfFileToXlsxLocalWithPrompt } from './pdf2xlsx-local'
 import { closePdfPasswordDialog, promptPdfPassword } from './pdf-password-dialog'
@@ -244,7 +247,29 @@ const SIDECAR_BIN = app.isPackaged
   ? join(process.resourcesPath, 'native', SIDECAR_EXE)
   : join(APPS_ROOT, 'sheets', 'native', 'xlsx-engine', 'target', 'release', SIDECAR_EXE)
 
+// Hancom saved-file preview helpers: packaged builds ship scripts/hwpx as
+// resources/hwpx (electron-builder extraResources), dev runs read the checkout.
+const HWPX_HELPER_DIR = app.isPackaged
+  ? join(process.resourcesPath, 'hwpx')
+  : join(APPS_ROOT, '..', 'scripts', 'hwpx')
+
+/**
+ * The Hancom preview service drives the installed Hancom Office through a
+ * PowerShell helper, so it is created only when a preview is actually
+ * requested (an app that never opens a HWPX never touches Hancom) and reused
+ * afterwards for its render queue and artifact cache.
+ */
+let hwpxPreview: HwpxPreviewService | null = null
+function hwpxPreviewService(): HwpxPreviewService {
+  hwpxPreview ??= createHwpxPreviewService({
+    cacheDir: join(app.getPath('userData'), 'hwpx-preview'),
+    helperDir: HWPX_HELPER_DIR,
+  })
+  return hwpxPreview
+}
+
 configureDocsRuntime({
+  readPdfOcr: process.platform === 'win32' ? readBundledPdfOcr : readPdfAttachmentOcr,
   preloadPath: join(DOCS_OUT, 'preload', 'index.js'),
   rendererUrl: process.env.DOCS_RENDERER_URL,
   rendererFile: join(DOCS_OUT, 'renderer', 'index.html'),
@@ -2218,6 +2243,30 @@ function createShellWindow(): void {
     recordRecentFile(path)
     applyPendingProject(path)
   })
+  // Hancom preview of a saved HWPX: docs' main resolves the path from the
+  // calling tab, this side renders it and hands back the artifact bytes. The
+  // cache file is display-only; saving still writes HWPX.
+  setHwpxPreviewHook(async (filePath, options) => {
+    const result = await hwpxPreviewService().preview(filePath, { force: options.force })
+    if (!result.ok) return { ok: false, error: result.error }
+    try {
+      // Read here, not in the renderer: the artifact path is service-internal
+      // state and never travels to a renderer that could reuse it later.
+      const bytes = new Uint8Array(readFileSync(result.pdfPath))
+      return {
+        ok: true,
+        bytes,
+        sourceHash: result.sourceHash,
+        hancomVersion: result.hancomVersion,
+        cached: result.cached,
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        error: `Could not read the rendered preview: ${error instanceof Error ? error.message : String(error)}`,
+      }
+    }
+  })
   // markdown untitled first save / Save As lands on a new path
   setMarkdownFileSavedHook((wc, path) => {
     manager.setTabFileFor(wc.id, path)
@@ -2492,9 +2541,9 @@ function surfaceNewTabError(err: unknown): void {
   showErrorDialog(shellWindow, tm('errNewTabFailed'), err)
 }
 
-function newDocTab(): void {
+function newDocTab(outputFormat?: 'hwpx'): void {
   try {
-    tabManager?.openDocsTab(undefined, { newBlank: true })
+    tabManager?.openDocsTab(undefined, { newBlank: true, outputFormat })
     // creating a document is as much a value moment as opening one
     recordStarPromptDocOpen()
     analytics.track('file_new', { kind: 'docx' })
@@ -2670,12 +2719,15 @@ function registerHomeIpc(): void {
     if (!result.canceled) for (const path of result.filePaths) openDocumentPath(path)
   })
 
-  ipcMain.handle(HOME_CHANNELS.newDoc, (_event, opts?: { projectId?: string }) => {
-    if (opts?.projectId && opts.projectId !== 'default') {
-      pendingNewFileProject.set('doc', opts.projectId)
-    }
-    newDocTab()
-  })
+  ipcMain.handle(
+    HOME_CHANNELS.newDoc,
+    (_event, opts?: { projectId?: string; outputFormat?: 'hwpx' }) => {
+      if (opts?.projectId && opts.projectId !== 'default') {
+        pendingNewFileProject.set('doc', opts.projectId)
+      }
+      newDocTab(opts?.outputFormat === 'hwpx' ? 'hwpx' : undefined)
+    },
+  )
 
   ipcMain.handle(HOME_CHANNELS.newSheet, (_event, opts?: { projectId?: string }) => {
     if (opts?.projectId && opts.projectId !== 'default') {
@@ -3929,4 +3981,35 @@ app.on('before-quit', () => {
   markSheetsShuttingDown()
   stopSheetsSidecar()
   void easyDocIntegration?.stop()
+})
+
+/** set while the held-back quit waits for the Hancom preview shutdown */
+let hwpxPreviewDisposal: Promise<void> | null = null
+
+/**
+ * A preview blocked on Hancom's per-file security dialog keeps a PowerShell
+ * child and an automation-owned hwp.exe alive, and once this process exits
+ * nothing is left to stop them. `will-quit` runs after every window (and its
+ * save/cancel prompt) has settled, so holding it back cannot interfere with
+ * those prompts. Every quit arriving before the shutdown finishes is held back
+ * too (a second Cmd+Q must not slip past the cleanup); the quit that runs after
+ * it goes through.
+ */
+app.on('will-quit', (event) => {
+  if (hwpxPreviewDisposal) {
+    // Shutdown still running: keep holding, and let it issue the final quit.
+    event.preventDefault()
+    return
+  }
+  if (!hwpxPreview) return
+  event.preventDefault()
+  const service = hwpxPreview
+  // Drop the reference: a cancelled quit that keeps the app running gets a
+  // fresh service on its next preview instead of a permanently disposed one.
+  hwpxPreview = null
+  hwpxPreviewDisposal = service.dispose().finally(() => {
+    hwpxPreviewDisposal = null
+    app.quit()
+  })
+  void hwpxPreviewDisposal
 })

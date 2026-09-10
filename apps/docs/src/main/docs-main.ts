@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { copyFile, mkdir, readFile, readdir, stat, unlink } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, join, extname } from 'node:path'
 import {
   BrowserWindow,
   Menu,
@@ -53,6 +53,7 @@ import type {
   WebContents,
 } from 'electron'
 import { parseFileToText } from '@genoffice/file-parse'
+import { exportHwpx } from '@genoffice/hwpx-engine'
 import {
   AiCreditsError,
   AiTimeoutError,
@@ -92,6 +93,7 @@ import type {
   CreateDocumentResult,
   DecryptOpenResult,
   DocsTabInfo,
+  HwpxPreviewResponse,
   MenuCommand,
   OpenDocxResult,
 } from '../shared/ipc'
@@ -1951,6 +1953,7 @@ const tm = (key: Parameters<typeof tMain>[1], params?: Parameters<typeof tMain>[
 // ---- runtime configuration (paths differ when bundled into the shell) ----
 
 interface DocsRuntimeConfig {
+  readPdfOcr?: (path: string) => Promise<string>
   /** absolute path to the docs preload bundle */
   preloadPath: string
   /** dev-server URL for the docs renderer (wins over rendererFile) */
@@ -1988,10 +1991,29 @@ export function markDocsNewBlank(wcId: number): void {
 
 /** AI-authored content waiting for its create_document tab, keyed by webContents id */
 const pendingAiDocContents = new Map<number, AiDocContent>()
+const hwpxPaths = new Map<number, string>()
 
 /** queue AI content for a fresh blank docs tab (called by the shell right after creating the view) */
 export function queueDocsAiContent(wcId: number, content: AiDocContent): void {
   pendingAiDocContents.set(wcId, content)
+  if (content.hwpxPath) hwpxPaths.set(wcId, content.hwpxPath)
+}
+
+/**
+ * Hancom-rendered preview of a saved HWPX, injected by the shell (which owns
+ * the preview service and its helper scripts). Standalone docs leaves it unset
+ * and reports the preview as unavailable. The renderer never names a path: the
+ * handler resolves it from the sender's tab, so a renderer cannot ask Hancom to
+ * open an arbitrary file on disk.
+ */
+type HwpxPreviewHook = (
+  filePath: string,
+  options: { force: boolean },
+) => Promise<HwpxPreviewResponse>
+let hwpxPreviewHook: HwpxPreviewHook | null = null
+
+export function setHwpxPreviewHook(hook: HwpxPreviewHook | null): void {
+  hwpxPreviewHook = hook
 }
 
 /** the single real BrowserWindow hosting the tab strip, used as dialog parent in tab mode */
@@ -2488,6 +2510,7 @@ const TEXT_EXTS = new Set([
 /** office/pdf formats get text extracted via @genoffice/file-parse; images skip extraction and go multimodal (files:read-image) */
 const ATTACHMENT_EXTS = new Set([
   ...TEXT_EXTS,
+  'hwpx',
   'doc',
   'docx',
   'pdf',
@@ -2595,6 +2618,14 @@ async function extractAttachmentText(filePath: string): Promise<string> {
   const parsed = await parseFileToText(filePath)
   if (!parsed.ok || parsed.kind !== 'text' || parsed.text == null) {
     throw new Error(parsed.error ?? tm('errParseFailed'))
+  }
+  if (extname(filePath).toLowerCase() === '.pdf' && !parsed.text.trim()) {
+    if (runtime.readPdfOcr) parsed.text = await runtime.readPdfOcr(filePath)
+  }
+  if (extname(filePath).toLowerCase() === '.pdf' && !parsed.text.trim()) {
+    throw new Error(
+      'This PDF contains no extractable text. It may be scanned; OCR is required before its contents can be read. Do not infer its contents from the filename.',
+    )
   }
   attachmentTextCache.set(filePath, { stamp, text: parsed.text })
   // keep the cache bounded (a handful of recent files is plenty)
@@ -3170,6 +3201,7 @@ export function registerDocsIpc(): void {
   /** one-shot AI content queued by create_document for this tab; null when none */
   ipcMain.handle('docs:consume-ai-doc-content', (event): AiDocContent | null => {
     const content = pendingAiDocContents.get(event.sender.id) ?? null
+    if (content?.hwpxPath) fileSavedHook?.(event.sender, content.hwpxPath)
     pendingAiDocContents.delete(event.sender.id)
     return content
   })
@@ -3389,6 +3421,45 @@ export function registerDocsIpc(): void {
   })
 
   ipcMain.handle('files:add', (_event, paths: string[]) => collectAttachments(paths))
+  ipcMain.handle('docs:save-hwpx', async (event, html: string, saveAs: boolean) => {
+    try {
+      let path = hwpxPaths.get(event.sender.id)
+      if (!path) throw new Error('No HWPX document is associated with this tab')
+      if (typeof html !== 'string' || html.length > 2_000_000) throw new Error('Invalid document content')
+      if (saveAs) {
+        const selected = await dialog.showSaveDialog({ defaultPath: path, filters: [{name: 'HWPX', extensions: ['hwpx']}] })
+        if (selected.canceled || !selected.filePath) return {ok: false}
+        path = selected.filePath.toLowerCase().endsWith('.hwpx') ? selected.filePath : selected.filePath + '.hwpx'
+      }
+      const result = exportHwpx(html, {title: basename(path, '.hwpx'), createdAt: new Date()})
+      await atomicWriteFile(path, Buffer.from(result.bytes))
+      hwpxPaths.set(event.sender.id, path)
+      fileSavedHook?.(event.sender, path)
+      return {ok: true, path}
+    } catch (error) { return {ok: false, error: error instanceof Error ? error.message : String(error)} }
+  })
+
+  /**
+   * Hancom preview of the saved HWPX bound to this tab. Path resolution stays
+   * on this side (sender-bound map), the shell hook renders and returns the
+   * artifact bytes. A failure is a normal outcome: the renderer keeps editing.
+   */
+  ipcMain.handle(
+    'docs:preview-hwpx',
+    async (event, force: boolean): Promise<HwpxPreviewResponse> => {
+      const path = hwpxPaths.get(event.sender.id)
+      // English, like the preview service's own messages: the renderer shows its
+      // own localized status label and treats this text as the failure detail.
+      if (!path) return { ok: false, error: 'No HWPX document is associated with this tab' }
+      if (!hwpxPreviewHook)
+        return { ok: false, error: 'Hancom preview is not available in this build' }
+      try {
+        return await hwpxPreviewHook(path, { force: force === true })
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  )
 
   ipcMain.handle(
     'files:read',
@@ -3693,6 +3764,15 @@ export async function createAiDocument(
     saveDir: defaultSaveDir,
     openGenerated: openGeneratedFile,
     reveal: (path) => shell.showItemInFolder(path),
+    openHwpx: (title, html, path) => {
+      const payload: AiDocContent = { title, html, hwpxPath: path }
+      if (shellHooks?.openAiDocTab) shellHooks.openAiDocTab(payload)
+      else {
+        const win = createDocsWindow(undefined)
+        markDocsNewBlank(win.webContents.id)
+        queueDocsAiContent(win.webContents.id, payload)
+      }
+    },
     openDocx: (title, html) => {
       const payload: AiDocContent = { title, html }
       if (shellHooks?.openAiDocTab) shellHooks.openAiDocTab(payload)
@@ -4224,7 +4304,7 @@ async function performDocsClose(
   return requestRendererSave(contents)
 }
 
-export function createDocsView(openPath?: string): WebContentsView {
+export function createDocsView(openPath?: string, outputFormat?: 'hwpx'): WebContentsView {
   const view = new WebContentsView({
     webPreferences: {
       preload: runtime.preloadPath,
@@ -4249,14 +4329,18 @@ export function createDocsView(openPath?: string): WebContentsView {
     // append via URL so a dev URL that already carries query params stays valid
     const devUrl = new URL(runtime.rendererUrl)
     devUrl.searchParams.set('mode', 'tab')
+    if (outputFormat) devUrl.searchParams.set('outputFormat', outputFormat)
     void view.webContents.loadURL(devUrl.toString())
   } else {
-    void view.webContents.loadFile(runtime.rendererFile, { query: { mode: 'tab' } })
+    void view.webContents.loadFile(runtime.rendererFile, {
+      query: { mode: 'tab', ...(outputFormat ? { outputFormat } : {}) },
+    })
   }
   // view.webContents becomes undefined after destroy, so grab the id beforehand
   const wcId = view.webContents.id
   view.webContents.once('destroyed', () => {
     pendingWindowOpens.delete(wcId)
+    hwpxPaths.delete(wcId)
     dropDocWriter(wcId)
     closeCheckWaiters.get(wcId)?.({ dirty: false, autoSave: false })
     closeCheckWaiters.delete(wcId)

@@ -73,6 +73,8 @@ import { isDocDirty } from './doc-dirty'
 import { createSaveSerializer } from './save-until-persisted'
 import { checkMissingFonts, collectDocFonts } from './font-check'
 import { setDocFontTable } from './line-metrics'
+import { hwpxEditorHtml } from './hwpx-editor-html'
+import { HWPX_PAGE_MARGIN_TWIPS, hwpxEditorNodes } from './hwpx-editor-content'
 import { adoptEmbeddedFonts } from './embedded-fonts'
 import { defaultEastAsiaFontFor } from './font-list'
 import { hasPrintableHeaderFooter } from './pagination'
@@ -809,6 +811,10 @@ export async function applyAiDocContent(
 ): Promise<void> {
   const { editor, doc } = ctx
   if (!editor || !doc) return
+  if (content.hwpxPath) {
+    applyGeneratedHwpx(ctx, content, content.hwpxPath)
+    return
+  }
   const nodes = aiDocContentNodes(content.html)
   if (nodes.length > 0) {
     replaceBlockRange(editor, 0, editor.state.doc.childCount - 1, nodes)
@@ -816,6 +822,123 @@ export async function applyAiDocContent(
     resetEditorHistory(editor)
   }
   await save(ctx, false, true, `${content.title}.docx`)
+}
+
+/**
+ * Generated HWPX: the exporter already wrote the file, and `content.html` is
+ * that file's normalized HTML. It is mapped through the dedicated HWPX bridge
+ * so the editor shows the saved document with its own formatting, and a save
+ * without edits reproduces the same bytes.
+ *
+ * Unsupported content is a real failure: the tab keeps the empty canvas and
+ * says so, instead of showing salvaged plain text as the saved document.
+ */
+function applyGeneratedHwpx(ctx: FileActionContext, content: AiDocContent, path: string): void {
+  const { editor } = ctx
+  if (!editor) return
+  let nodes: PmNode[]
+  const notes: string[] = []
+  try {
+    nodes = hwpxEditorNodes(content.html, notes)
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    ctx.setStatus(t('appOpenFailed', { error }))
+    showToast(t('appOpenFailed', { error }), 'error')
+    return
+  }
+  // Replace the blank canvas outright instead of going through the AI insert
+  // path: that path lends the blank template's paragraph formatting to the new
+  // blocks and flags them as AI changes, both of which would make the tab differ
+  // from the file on disk.
+  cancelPhasedContent()
+  editor.commands.setContent({ type: 'doc', content: nodes } as never)
+  // the document is born with this content: undo must not reach back to empty
+  resetEditorHistory(editor)
+  // Canvas parity with the HWPX writer: A4 (already the blank default) with 20 mm margins.
+  applyHwpxPageMargins(ctx)
+  ctx.setDoc((prev) =>
+    prev ? { ...prev, filePath: path, fileName: path.split(/[\\/]/).pop() ?? prev.fileName } : prev,
+  )
+  ctx.dirtyRef.current = false
+  // Limitations of this document (e.g. image alt text) belong on the status
+  // line: the file is saved, but the user should know what an edit will not keep.
+  ctx.setStatus([t('appSaved'), ...notes].join(' '))
+}
+
+/** Show the HWPX writer's 20 mm margins on the canvas without marking the document dirty. */
+function applyHwpxPageMargins(ctx: FileActionContext): void {
+  const margins = {
+    marginTop: HWPX_PAGE_MARGIN_TWIPS,
+    marginRight: HWPX_PAGE_MARGIN_TWIPS,
+    marginBottom: HWPX_PAGE_MARGIN_TWIPS,
+    marginLeft: HWPX_PAGE_MARGIN_TWIPS,
+  }
+  if (ctx.section) ctx.setSection({ ...ctx.section, ...margins })
+  if (ctx.sections.length > 0) {
+    ctx.setSections(
+      ctx.sections.map((section) => ({
+        ...section,
+        settings: { ...section.settings, ...margins },
+      })),
+    )
+  }
+}
+
+/**
+ * HWPX save: the exporter rewrites the whole document from the live PM tree, so
+ * there is no docx-style reparse/rebase step. Two invariants match the docx
+ * path: an export failure keeps the document dirty and reports the reason, and
+ * edits that arrive while the write is in flight keep it dirty (the bytes on
+ * disk are older than the editor).
+ */
+async function saveHwpxOnce(
+  ctx: FileActionContext,
+  editor: Editor,
+  docSnapshot: unknown,
+  saveAs: boolean,
+  auto: boolean,
+): Promise<boolean> {
+  let html: string
+  const notes: string[] = []
+  try {
+    html = hwpxEditorHtml(editor, notes)
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err)
+    ctx.setStatus(t('appSaveFailed', { error }))
+    if (!auto) showToast(t('appSaveFailed', { error }), 'error')
+    return false
+  }
+  const result = await window.desktop.saveHwpx(html, saveAs)
+  if (!result.ok) {
+    // no error = canceled in the Save As dialog: stay dirty, say nothing
+    if (result.error) {
+      ctx.setStatus(t('appSaveFailed', { error: result.error }))
+      if (!auto) showToast(t('appSaveFailed', { error: result.error }), 'error')
+    }
+    return false
+  }
+  const savedPath = result.path!
+  // The user kept typing while the main process wrote: the file is a older
+  // revision, so the document stays dirty and the retry pass converges.
+  ctx.saveIncompleteRef.current = editor.state.doc !== docSnapshot
+  if (!ctx.saveIncompleteRef.current) ctx.dirtyRef.current = false
+  ctx.setDoc((prev) =>
+    prev
+      ? { ...prev, filePath: savedPath, fileName: savedPath.split(/[\\/]/).pop() ?? prev.fileName }
+      : prev,
+  )
+  ctx.setStatus(
+    [
+      auto ? t('appAutoSavedAt', { time: new Date().toLocaleTimeString() }) : t('appSaved'),
+      ...notes,
+    ].join(' '),
+  )
+  if (!auto && !ctx.saveIncompleteRef.current) {
+    // A saved-with-limitations document must not report a clean success.
+    if (notes.length > 0) showToast(notes.join(' '), 'error')
+    else showToast(t('appSaved'), 'success')
+  }
+  return true
 }
 
 async function saveOnce(
@@ -838,6 +961,9 @@ async function saveOnce(
     window.dispatchEvent(new Event('ai-docs-commit-tables'))
     // identity snapshot: detects edits that arrive while the save is in flight
     const docSnapshot = editor.state.doc
+    if (doc.filePath?.toLowerCase().endsWith('.hwpx')) {
+      return await saveHwpxOnce(ctx, editor, docSnapshot, saveAs, auto)
+    }
     const selectionPos = editor.state.selection.from
     const bytes = await buildDocBytes(ctx)
     if (!bytes) return false

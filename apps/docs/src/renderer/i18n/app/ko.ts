@@ -376,4 +376,17 @@ export const ko = {
   appUpdateStyleTip: '현재 선택 영역의 서식으로 이 스타일을 업데이트합니다(styles.xml에 기록)',
   appNewStyleFromSelection: '선택 영역에서 새 스타일 만들기',
   appStyleNamePlaceholder: '스타일 이름',
+  // HWPX preview (Hancom-rendered saved file)
+  appHwpxTabEdit: '편집',
+  appHwpxTabPreview: '한컴 미리 보기',
+  appHwpxPreviewPageOf: '미리 보기 {current}/{total} 페이지',
+  appHwpxPreviewTitle: '저장본 한컴 미리 보기',
+  appHwpxPreviewHint: '저장된 파일을 한컴에서 열어 그대로 보여 줍니다.',
+  appHwpxPreviewRendering: '한컴이 저장본을 변환하고 있습니다. 최대 90초까지 걸릴 수 있습니다.',
+  appHwpxPreviewSaved: '저장본 기준, 한컴 {version} 변환',
+  appHwpxPreviewStale: '저장하지 않은 편집이 있습니다. 저장하면 미리 보기를 새로 고칩니다.',
+  appHwpxPreviewFailedShort: '미리 보기를 만들지 못했습니다.',
+  appHwpxPreviewFailed: '한컴 미리 보기에 실패했습니다: {error}',
+  appHwpxPreviewUnreadable: '변환된 미리 보기를 표시할 수 없습니다: {error}',
+  appHwpxPreviewRefresh: '새로 고침',
 } satisfies Record<keyof typeof zh, string>

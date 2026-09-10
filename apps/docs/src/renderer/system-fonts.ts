@@ -22,16 +22,15 @@ async function queryFamilies(): Promise<readonly string[]> {
 }
 
 function loadSystemFontFamilies(): Promise<readonly string[]> {
-  if (cached) return Promise.resolve(cached)
   pending ??= queryFamilies().then((families) => {
     cached = families
     return families
-  })
+  }).finally(() => { pending = null })
   return pending
 }
 
 /// Empty until load() runs — call it from the picker's open click so the
-/// Local Font Access API sees user activation; cached for the page lifetime,
+/// Local Font Access API sees user activation; refresh on each picker open,
 /// and on failure the pickers just keep the built-in list.
 export function useSystemFontFamilies(): {
   readonly families: readonly string[]

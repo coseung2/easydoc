@@ -1,6 +1,17 @@
 import type { zh } from './zh'
 
 export const ar = {
+  fontNotInstalled: 'Not installed',
+  fontSearch: 'Search fonts',
+  fontFavorites: 'Favorites',
+  fontBasic: 'Basic fonts',
+  fontFavoriteAdd: 'Add favorite',
+  fontFavoriteRemove: 'Remove favorite',
+  fontShowSystem: 'Show system fonts',
+  fontHideSystem: 'Hide system fonts',
+  aiHwpxTitle: 'Create a HWPX document',
+  aiHwpxBody: 'Describe the document you need, or attach reference material.',
+  aiHwpxSaveHint: 'The document is saved as a .hwpx file. Open it in Hancom Hangul to review it.',
   aiEmptyDraftTitle: 'دع الذكاء الاصطناعي يكتب مسودة هذا المستند لك',
   aiEmptyDraftBody1: 'صف الموضوع والنقاط الرئيسية أو الصق مادة مرجعية؛',
   aiEmptyDraftBody2: 'يكتب الذكاء الاصطناعي المسودة الأولى مباشرة على الصفحة.',

@@ -1,6 +1,17 @@
 import type { zh } from './zh'
 
 export const ko = {
+  fontNotInstalled: '미설치',
+  fontSearch: '폰트 검색',
+  fontFavorites: '즐겨찾기',
+  fontBasic: '기본 폰트',
+  fontFavoriteAdd: '즐겨찾기 추가',
+  fontFavoriteRemove: '즐겨찾기 해제',
+  fontShowSystem: '시스템 폰트 모두 보기',
+  fontHideSystem: '시스템 폰트 숨기기',
+  aiHwpxTitle: '한글 문서 만들기',
+  aiHwpxBody: '문서의 내용과 용도를 알려주거나 참고 자료를 첨부해 주세요.',
+  aiHwpxSaveHint: '완성한 문서는 .hwpx 파일로 저장합니다. 한컴 한글에서 열어 확인하세요.',
   aiEmptyDraftTitle: 'AI에게 초안 작성을 맡기세요',
   aiEmptyDraftBody1: '주제와 요점을 설명하거나 참고 자료를 붙여넣으면',
   aiEmptyDraftBody2: 'AI가 바로 초안을 작성합니다.',

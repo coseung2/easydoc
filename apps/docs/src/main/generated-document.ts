@@ -6,6 +6,12 @@ import { exportHwpx } from '@genoffice/hwpx-engine'
 export interface GeneratedDocumentHost {
   saveDir(): string
   openDocx(title: string, html: string): void
+  /**
+   * Open the saved HWPX in an editor tab. `html` is the exporter's normalized
+   * HTML for the bytes that were written, not the request content, so the tab
+   * shows the document that actually exists on disk.
+   */
+  openHwpx?(title: string, html: string, path: string): void
   renderPdf(title: string, html: string): Promise<Uint8Array>
   /** Return true only when the file was opened in an editor. */
   openGenerated(path: string): boolean
@@ -33,7 +39,10 @@ export async function createGeneratedDocument(
     const warnings = [...(hwpx?.warnings ?? [])]
     let opened = false
     try {
-      if (hwpx) host.reveal(path)
+      if (hwpx && host.openHwpx) {
+        host.openHwpx(title, hwpx.editorHtml, path)
+        opened = true
+      } else if (hwpx) host.reveal(path)
       else opened = host.openGenerated(path)
     } catch {
       warnings.push('The file was saved, but could not be opened or revealed automatically.')

@@ -349,4 +349,17 @@ export const hi = {
   appUpdateStyleTip: 'वर्तमान चयन से इस शैली को अपडेट करें (styles.xml में वापस लिखा जाता है)',
   appNewStyleFromSelection: 'वर्तमान चयन से नई शैली',
   appStyleNamePlaceholder: 'शैली का नाम',
+  // HWPX preview (Hancom-rendered saved file)
+  appHwpxTabEdit: 'Edit',
+  appHwpxTabPreview: 'Hancom preview',
+  appHwpxPreviewPageOf: 'Preview page {current} of {total}',
+  appHwpxPreviewTitle: 'Hancom preview of the saved file',
+  appHwpxPreviewHint: 'Shows the saved file as Hancom renders it.',
+  appHwpxPreviewRendering: 'Hancom is rendering the saved file; this can take up to 90 seconds.',
+  appHwpxPreviewSaved: 'Saved file, rendered by Hancom {version}',
+  appHwpxPreviewStale: 'Unsaved edits: save to refresh this preview.',
+  appHwpxPreviewFailedShort: 'No preview available.',
+  appHwpxPreviewFailed: 'Hancom could not render the preview: {error}',
+  appHwpxPreviewUnreadable: 'The rendered preview could not be displayed: {error}',
+  appHwpxPreviewRefresh: 'Refresh',
 } satisfies Record<keyof typeof zh, string>

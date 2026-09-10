@@ -355,4 +355,17 @@ export const pl = {
     'Zaktualizuj ten styl formatem bieżącego zaznaczenia (zapisywane z powrotem do styles.xml)',
   appNewStyleFromSelection: 'Nowy styl z bieżącego zaznaczenia',
   appStyleNamePlaceholder: 'Nazwa stylu',
+  // HWPX preview (Hancom-rendered saved file)
+  appHwpxTabEdit: 'Edit',
+  appHwpxTabPreview: 'Hancom preview',
+  appHwpxPreviewPageOf: 'Preview page {current} of {total}',
+  appHwpxPreviewTitle: 'Hancom preview of the saved file',
+  appHwpxPreviewHint: 'Shows the saved file as Hancom renders it.',
+  appHwpxPreviewRendering: 'Hancom is rendering the saved file; this can take up to 90 seconds.',
+  appHwpxPreviewSaved: 'Saved file, rendered by Hancom {version}',
+  appHwpxPreviewStale: 'Unsaved edits: save to refresh this preview.',
+  appHwpxPreviewFailedShort: 'No preview available.',
+  appHwpxPreviewFailed: 'Hancom could not render the preview: {error}',
+  appHwpxPreviewUnreadable: 'The rendered preview could not be displayed: {error}',
+  appHwpxPreviewRefresh: 'Refresh',
 } satisfies Record<keyof typeof zh, string>

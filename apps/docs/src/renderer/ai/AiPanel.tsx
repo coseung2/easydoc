@@ -28,6 +28,7 @@ import { DOCS_CONTINUE_INSTRUCTION } from './continuation'
 import { waitForFullContent } from '../phased-content'
 import { currentDocGeneration } from '../file-actions'
 import { createFilesSkill } from './files-skill'
+import { attachmentContext } from './attachment-context'
 import { createElectronTransport } from './transport'
 import { useI18n, t as tModule, aiLangDirective, type StringKey } from '../i18n/locale'
 import { Markdown } from '@genoffice/ui'
@@ -317,6 +318,7 @@ export function AiPanel({
   // Panel chrome follows the UI language; message text follows its own content (dir=auto below)
   const isRtl = lang === 'ar' || lang === 'he'
   const [input, setInput] = useState('')
+  const hwpxMode = new URLSearchParams(window.location.search).get('outputFormat') === 'hwpx'
   const [busy, setBusy] = useState(false)
   /** Wall-clock start of the current run, drives the elapsed badge */
   const runStartedAtRef = useRef(0)
@@ -599,7 +601,12 @@ export function AiPanel({
     })
     loopRef.current = new AgentLoop<PmNode>({
       transport: createElectronTransport(() => settingsRef.current),
-      systemSuffix: () => aiLangDirective() + aiRulesDirective(settingsRef.current),
+      systemSuffix: () =>
+        aiLangDirective() +
+        aiRulesDirective(settingsRef.current) +
+        (hwpxMode
+          ? '\n\nThe user opened the HWPX creation workspace. For document creation requests, use create_document with type hwpx unless the user explicitly requests another format. Ask for missing content when needed. Deliver the saved HWPX file; do not substitute edits to the blank DOCX canvas. Follow the HWPX tool limitations and report its warnings.'
+          : ''),
       skill: composeSkills('docs+files', '', [
         createDocsSkill(
           () => editorRef.current,
@@ -864,6 +871,9 @@ export function AiPanel({
       })
       // a phased open still streaming its tail: the context must describe the whole document
       .then(async (images) => {
+        const extracted = await attachmentContext(sentAtts, (path, offset, size) =>
+          window.desktop.readAttachment(path, offset, size),
+        )
         await waitForFullContent()
         // a newer send (after New chat) owns the panel now: leave its state alone
         if (pendingSendRef.current !== pending) return
@@ -879,7 +889,7 @@ export function AiPanel({
           setBusy(false)
           return
         }
-        return loop.run(instruction, images)
+        return loop.run(instruction + extracted, images)
       })
   }
 
@@ -1131,12 +1141,12 @@ export function AiPanel({
         {chat.length === 0 && historicChat.length === 0 && (
           <div className="ai-chat-empty">
             <div className="ai-chat-empty-title">
-              {t(docEmpty ? 'aiEmptyDraftTitle' : 'aiEmptyTitle')}
+              {t(hwpxMode ? 'aiHwpxTitle' : docEmpty ? 'aiEmptyDraftTitle' : 'aiEmptyTitle')}
             </div>
             <div className="ai-chat-empty-body">
-              {t(docEmpty ? 'aiEmptyDraftBody1' : 'aiEmptyBody1')}
+              {t(hwpxMode ? 'aiHwpxBody' : docEmpty ? 'aiEmptyDraftBody1' : 'aiEmptyBody1')}
               <br />
-              {t(docEmpty ? 'aiEmptyDraftBody2' : 'aiEmptyBody2')}
+              {t(hwpxMode ? 'aiHwpxSaveHint' : docEmpty ? 'aiEmptyDraftBody2' : 'aiEmptyBody2')}
             </div>
             <div className="ai-starter-list">
               {(docEmpty ? DRAFT_STARTER_PROMPTS : EDIT_STARTER_PROMPTS).map((p) => (

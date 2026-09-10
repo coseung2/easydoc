@@ -15,6 +15,36 @@ import {
   createWindowsOcrEngine,
 } from '../../../../packages/pdf2docx/src/ocr-vision'
 import { pdfiumWasmPath } from '../../../pdf/src/main/wasm-path'
+import { withPdfDocument, renderPageByIndexPng } from '../../../../packages/pdf2docx/src/extract'
+
+/** Local OCR for image-only chat PDFs; never sends document bytes to a service. */
+export async function readPdfAttachmentOcr(pdfPath: string): Promise<string> {
+  const engine = ensureOcrEngine()
+  if (!engine) throw new Error('Local PDF OCR is unavailable: the system OCR helper is missing')
+  const module = await ensurePdfium()
+  return withPdfDocument(module, new Uint8Array(readFileSync(pdfPath)), (doc) => {
+    const count = module._FPDF_GetPageCount(doc)
+    if (count > 100)
+      throw new Error('PDF OCR supports up to 100 pages per attachment; split this document first')
+    const pages: string[] = []
+    for (let index = 0; index < count; index++) {
+      const rendered = renderPageByIndexPng(module, doc, index, 2)
+      const result = rendered
+        ? engine(rendered.data, {
+            widthPt: rendered.pixelWidth / 2,
+            heightPt: rendered.pixelHeight / 2,
+          })
+        : null
+      if (!result)
+        throw new Error(
+          `PDF OCR failed on page ${index + 1}; check installed Windows OCR languages`,
+        )
+      const text = result.lines.map((line) => line.text).join('\n')
+      if (text.trim()) pages.push(`[Page ${index + 1}; OCR]\n${text}`)
+    }
+    return pages.join('\n\n')
+  })
+}
 
 export type { ConvertResult, PageResult } from '../../../../packages/pdf2docx/src'
 export { PdfLoadError } from '../../../../packages/pdf2docx/src'

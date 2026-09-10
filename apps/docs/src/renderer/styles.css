@@ -1314,9 +1314,37 @@ html.genoffice-popover-open .ribbon-tabs {
 /* Font family list: each entry renders in its own typeface (inline style);
    long list scrolls like Word's */
 .rb-font-family-menu {
-  min-width: 200px;
+  min-width: 300px;
   max-height: calc(100vh - 130px);
   overflow-y: auto;
+}
+
+.font-menu-row {
+  display: flex;
+  align-items: center;
+}
+.font-menu-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+}
+.rb-font-family-menu .font-menu-star {
+  width: 36px;
+  min-width: 36px;
+  padding: 6px;
+  text-align: center;
+}
+.font-menu-search {
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.rb-font-family-menu .font-menu-system-toggle {
+  color: var(--text-secondary);
+  margin-top: 8px;
 }
 
 .rb-font-family-menu button {
@@ -9089,6 +9117,118 @@ body.docs-crop-active
 }
 
 /* ---- Read mode: chrome hidden, document only, Esc to exit ---- */
+
+/* ================= HWPX: Edit / Hancom preview of the saved file ================= */
+
+.hwpx-view-tabs {
+  display: flex;
+  gap: 2px;
+  flex: none;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.hwpx-view-tabs button {
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.hwpx-view-tabs button:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.hwpx-view-tabs button.on {
+  border-color: var(--border);
+  background: var(--canvas);
+  color: var(--text);
+}
+
+/* The editor keeps its state (and its scroll position) while the preview shows */
+.editor-scroll-hidden {
+  display: none;
+}
+
+.hwpx-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+.hwpx-preview-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.hwpx-preview-status {
+  flex: 1;
+  min-width: 0;
+}
+
+.hwpx-preview-refresh {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.hwpx-preview-refresh:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.hwpx-preview-refresh:disabled {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.hwpx-preview-error {
+  flex: none;
+  margin: 0;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.hwpx-preview-pages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 16px 12px 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.hwpx-preview-page {
+  box-shadow: var(--docs-shadow-chip);
+  background: #fff;
+}
 
 .read-mode .ribbon,
 .read-mode .ai-dock,

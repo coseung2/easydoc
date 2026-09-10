@@ -3,6 +3,7 @@ import { extname } from 'node:path'
 import { docToText } from './doc'
 import { docxToText } from './docx'
 import { pdfToText } from './pdf'
+import { hwpxToText } from './hwpx'
 import { pptToText } from './ppt'
 import { pptxToText } from './pptx'
 import { xlsxToText } from './xlsx'
@@ -50,6 +51,8 @@ export async function parseFileToText(filePath: string): Promise<ParsedFile> {
       return { ok: true, kind: 'text', text: await readFile(filePath, 'utf-8') }
     }
     switch (ext) {
+      case 'hwpx':
+        return { ok: true, kind: 'text', text: await hwpxToText(await readFile(filePath)) }
       case 'doc':
         return { ok: true, kind: 'text', text: await docToText(await readFile(filePath)) }
       case 'docx':

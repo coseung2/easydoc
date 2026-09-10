@@ -168,6 +168,8 @@ import {
   type ViewMode,
 } from './components/ribbon-tabs'
 import { ComparePanel } from './components/ComparePanel'
+import { HwpxPreview, HwpxViewTabs } from './components/HwpxPreview'
+import { useHwpxPreview } from './use-hwpx-preview'
 import {
   EditorContextMenu,
   FontDialog,
@@ -3546,6 +3548,36 @@ export function App() {
   const hasUnsavedChanges = isDocDirty(fileCtxRef.current)
   anyDirtyRef.current = hasUnsavedChanges
 
+  // ---- HWPX: Hancom preview of the saved file ----
+  // Derived from the live document, not from the tab's launch URL: a generated
+  // child tab can carry a docx while another carries an .hwpx.
+  const hwpxPath = doc?.filePath?.toLowerCase().endsWith('.hwpx') ? doc.filePath : null
+  const [hwpxView, setHwpxView] = useState<'edit' | 'preview'>('edit')
+  // One revision per successful save: the composite dirty check going from
+  // dirty to clean is exactly "the file on disk caught up with the editor".
+  const [hwpxSavedRevision, setHwpxSavedRevision] = useState(0)
+  const hwpxWasDirtyRef = useRef(false)
+  useEffect(() => {
+    if (!hwpxPath) {
+      hwpxWasDirtyRef.current = false
+      setHwpxView('edit')
+      return
+    }
+    if (hasUnsavedChanges) {
+      hwpxWasDirtyRef.current = true
+      return
+    }
+    if (!hwpxWasDirtyRef.current) return
+    hwpxWasDirtyRef.current = false
+    setHwpxSavedRevision((revision) => revision + 1)
+  }, [hwpxPath, hasUnsavedChanges])
+  const hwpxPreview = useHwpxPreview({
+    filePath: hwpxPath,
+    savedRevision: hwpxSavedRevision,
+    enabled: !!hwpxPath,
+  })
+  const hwpxPreviewShown = !!hwpxPath && hwpxView === 'preview'
+
   // close guard: the main process queries dirty state before closing a tab/window; choosing "Save" runs a full save and reports back
   useEffect(() => {
     const offCheck = window.desktop.onCloseCheck?.(() => {
@@ -4619,7 +4651,21 @@ export function App() {
               />
             )}
             <div className="editor-area">
-              <main className="editor-scroll" ref={scrollContainerRef}>
+              {hwpxPath && (
+                <HwpxViewTabs
+                  view={hwpxView}
+                  onView={setHwpxView}
+                  editLabel={t('appHwpxTabEdit')}
+                  previewLabel={t('appHwpxTabPreview')}
+                />
+              )}
+              {/* The editor stays mounted while the preview shows: switching back
+                  must not reload the document or drop the selection. */}
+              <main
+                className={`editor-scroll${hwpxPreviewShown ? ' editor-scroll-hidden' : ''}`}
+                ref={scrollContainerRef}
+                {...(hwpxPreviewShown ? { 'aria-hidden': true } : {})}
+              >
                 {doc ? (
                   <div
                     className={docZoomClass}
@@ -4779,6 +4825,13 @@ export function App() {
                   <div className="start-screen start-booting">{t('appStartOpening')}</div>
                 )}
               </main>
+              {hwpxPreviewShown && (
+                <HwpxPreview
+                  state={hwpxPreview.state}
+                  dirty={hasUnsavedChanges || hwpxPreview.staleRender}
+                  onRefresh={hwpxPreview.refresh}
+                />
+              )}
               {doc && splitView && (
                 <div className="split-pane">
                   <div className="split-pane-bar">

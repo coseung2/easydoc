@@ -1,5 +1,16 @@
 /** ai strings, zh: defines the key set every other locale shard must match. */
 export const zh = {
+  fontNotInstalled: 'Not installed',
+  fontSearch: 'Search fonts',
+  fontFavorites: 'Favorites',
+  fontBasic: 'Basic fonts',
+  fontFavoriteAdd: 'Add favorite',
+  fontFavoriteRemove: 'Remove favorite',
+  fontShowSystem: 'Show system fonts',
+  fontHideSystem: 'Hide system fonts',
+  aiHwpxTitle: 'Create a HWPX document',
+  aiHwpxBody: 'Describe the document you need, or attach reference material.',
+  aiHwpxSaveHint: 'The document is saved as a .hwpx file. Open it in Hancom Hangul to review it.',
   aiEmptyDraftTitle: '让 AI 帮你从零起草',
   aiEmptyDraftBody1: '描述主题、要点或粘贴参考素材,',
   aiEmptyDraftBody2: 'AI 直接为你写出初稿。',

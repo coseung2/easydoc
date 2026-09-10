@@ -26,7 +26,7 @@ import { VertRelTo } from 'ownhwpx/object/content/section_xml/enumtype/VertRelTo
 import { HorzRelTo } from 'ownhwpx/object/content/section_xml/enumtype/HorzRelTo'
 import { HorzAlign } from 'ownhwpx/object/content/section_xml/enumtype/HorzAlign'
 import { PageDirection } from 'ownhwpx/object/content/section_xml/enumtype/PageDirection'
-import { DEFAULT_TEXT_STYLE, HWPX_LIMITS } from './model'
+import { DEFAULT_TEXT_STYLE, HWPX_LIMITS, distributeWidths } from './model'
 import type { GeneratedDocument, ImageRun, Paragraph, TableBlock, TextStyle } from './model'
 
 // HWPUNIT = 1/100 pt. A4 portrait, 20 mm margins. Fonts are referenced, never bundled.
@@ -335,9 +335,11 @@ export function writeOwnHwpx(document: GeneratedDocument, options: HwpxWriteOpti
 
   function table(block: TableBlock): void {
     const cols = block.rows[0]!.length
-    const widths = Array.from(
-      { length: cols },
-      (_, i) => Math.floor(CONTENT_WIDTH / cols) + (i < CONTENT_WIDTH % cols ? 1 : 0),
+    // Column shares are already canonical (they sum to the scale and clear the
+    // minimum share), so scaling to the text width applies no further clamping.
+    const widths = distributeWidths(
+      CONTENT_WIDTH,
+      block.columnWidths ?? Array.from({ length: cols }, () => 1),
     )
     const heights = block.rows.map((row) =>
       Math.max(
@@ -407,6 +409,7 @@ export function writeOwnHwpx(document: GeneratedDocument, options: HwpxWriteOpti
       lineHeight: 160,
       heading: 0,
       indent: 0,
+      pre: false,
     })
     wrapper.addNewRun().charPrIDRefAnd('0').addItem(object)
     section.paraListCore.addPara(wrapper)

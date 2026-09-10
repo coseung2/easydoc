@@ -416,6 +416,10 @@ const config = {
         from: WIN_SIDECAR,
         to: 'native/xlsx-sidecar.exe',
       },
+      { from: '../../.task/paddle-bundle', to: 'paddle-ocr' },
+      // Hancom saved-HWPX preview helpers (Windows-only feature). Scripts only:
+      // the fixtures and notes next to them have no place in an install.
+      { from: '../../scripts/hwpx', to: 'hwpx', filter: ['*.ps1'] },
     ],
   },
   // Unlike win (which cross-compiles the sidecar to an explicit target
@@ -503,6 +507,20 @@ const config = {
     allowToChangeInstallationDirectory: true,
   },
   beforePack: async (context) => {
+    if (context.electronPlatformName === 'win32' && winArm64) {
+      throw new Error('Bundled PaddleOCR currently supports Windows x64; prepare and verify an ARM64 OCR runtime before packaging ARM64')
+    }
+    if (context.electronPlatformName === 'win32' &&
+        !existsSync(join(__dirname, '../../.task/paddle-bundle/python.exe'))) {
+      throw new Error('Missing bundled PaddleOCR runtime: prepare scripts/ocr/build-bundle.py before packaging')
+    }
+    // A missing helper would ship a build whose HWPX preview can only fail.
+    if (context.electronPlatformName === 'win32') {
+      for (const helper of ['hwpx-to-pdf.ps1', 'stop-owned-hwp.ps1']) {
+        if (!existsSync(join(__dirname, '../../scripts/hwpx', helper)))
+          throw new Error(`win extraResources source missing: scripts/hwpx/${helper}`)
+      }
+    }
     assertModuleTreesPresent()
     if (context.electronPlatformName === 'darwin' && includeMacX64) {
       assertUniversalSidecar()

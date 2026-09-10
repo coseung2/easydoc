@@ -47,7 +47,7 @@ export function validateGeneratedDocumentRequest(input: unknown): GeneratedDocum
 
 /** Keep the capability boundary next to the shared type catalog. */
 export const HWPX_TOOL_GUIDE =
-  'hwpx creates an experimental Hancom document from restricted HTML: paragraphs/headings, bold/italic/underline/strike, text-align, font-size/font-family/color/line-height, simple lists, rectangular unmerged tables, and embedded base64 PNG/JPEG images. No external image URLs, merged/nested tables, charts, equations, arbitrary CSS, or HWP5 output. The file is saved and revealed, NOT opened in an editor. Report compatibility warnings; Hancom visual/open verification is still required.'
+  'hwpx creates an experimental Hancom document from restricted HTML: paragraphs/headings, bold/italic/underline/strike, text-align, font-size/font-family/color/line-height, simple lists, rectangular unmerged tables, and embedded base64 PNG/JPEG images. No external image URLs, merged/nested tables, charts, equations, arbitrary CSS, or HWP5 output. The file is saved and opened in a document tab when supported by the host; use the returned opened flag. Report compatibility warnings; Hancom visual/open verification is still required.'
 
 export function generatedDocumentResultText(
   type: string,
@@ -56,7 +56,7 @@ export function generatedDocumentResultText(
 ): string {
   if (!result.ok) return result.error || 'Document creation failed.'
   const description = result.path
-    ? `Created the new document at ${result.path}${result.opened === false || type === 'hwpx' ? '. The file was saved, not opened in an editor tab.' : ' and opened it in a new tab.'}`
+    ? `Created the new document at ${result.path}${result.opened === false ? '. The file was saved, not opened in an editor tab.' : ' and opened it in a new tab.'}`
     : `Created the new document "${title}.${type}" in a new tab; it saves itself into the default folder.`
   return [description, ...(result.warnings ?? [])].join('\n')
 }

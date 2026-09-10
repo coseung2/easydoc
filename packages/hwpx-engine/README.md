@@ -12,14 +12,50 @@ const result = exportHwpx('<h1>보고서</h1><p>확인된 내용</p>', {
 })
 // The host saves result.bytes with exclusive creation and displays result.warnings.
 // result.verification is always 'structural-only', never 'Hancom verified'.
+// result.editorHtml is the written document normalized back into this HTML subset.
 ```
+
+## Normalized editor HTML
+
+`exportHwpx` also returns `editorHtml`: the parsed document serialized back into
+the same restricted subset by `documentToHtml`, so an editor shows what the file
+actually contains instead of the upstream HTML. Exporting `editorHtml` again
+without edits reproduces byte-identical output for the same `createdAt`.
+
+Each paragraph carries `text-align` and `line-height`, plus `margin-left` in whole
+14 pt indent levels (at most 8; deeper input is flattened with a warning). Every
+run is a `<span>` with all six supported text properties written explicitly, `<br>`
+for line breaks, literal whitespace inside `<pre>`, and images as base64 data URIs
+with explicit `width`/`height`.
+
+Lists are flattened at parse time into indented paragraphs whose marker (`1. `,
+`• `) is ordinary text, so `<ul>`/`<ol>`, `start` and nesting depth are not
+recoverable. Re-exporting keeps those markers as text instead of numbering them a
+second time. `<div>`/`<blockquote>` grouping is likewise not recoverable; only its
+indentation is.
+
+## Table column widths
+
+A table may declare explicit widths in one leading `<colgroup>`:
+`<col style="width:25%">`, `<col style="width:120px">`, `<col style="width:90pt">`,
+or `<col width="120">` (pixels; a `style` width wins over the attribute), and
+`span="n"` repeats a width. Per table the forms must not mix `%` with lengths,
+every column must be declared exactly once (`span` included), the `<colgroup>` must
+carry no attributes, and `<col>` accepts only `style`/`width`/`span`. Anything else
+is rejected instead of being ignored.
+
+Widths are stored proportionally (ten-thousandths of the table width, minimum 2%
+per column) and applied to both the written table and `editorHtml`, so the editor
+and the file always show the same grid. The table itself always spans the text
+width; absolute page-relative table widths are not supported.
 
 ## Supported subset
 
 Paragraphs and H1–H6 named heading styles; bold, italic, underline and strike;
 font family/size, hex text color, alignment and percentage line spacing; line
 breaks; simple lists with editable text markers; rectangular unmerged tables with
-rich cell paragraphs; PNG/JPEG data-URI images scaled to the content area;
+rich cell paragraphs and optional explicit column widths; level-based paragraph
+indentation via `margin-left`; PNG/JPEG data-URI images scaled to the content area;
 A4 portrait with 20 mm margins and a text preview. Font names are references;
 font files are never bundled. The target machine can substitute missing fonts.
 
@@ -53,6 +89,8 @@ dimensions. It does **not** run the OWPML XSD or Hancom. Unit tests also read th
 file with the SDK and compare extracted Korean text/table/image resources.
 Identical input and creation time produce byte-identical output; this is a
 regression property, not a visual fidelity guarantee.
+Round-trip tests re-export `editorHtml` and compare bytes, extracted text and
+written column widths; they prove the model is stable, not Hancom fidelity.
 
 Run `npm run test -w @genoffice/hwpx-engine` and
 `npm run typecheck -w @genoffice/hwpx-engine`. See

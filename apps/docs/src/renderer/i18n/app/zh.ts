@@ -364,4 +364,17 @@ export const zh = {
   appUpdateStyleTip: '用当前选区的格式更新此样式(写回 styles.xml)',
   appNewStyleFromSelection: '从当前选区新建样式',
   appStyleNamePlaceholder: '样式名称',
+  // HWPX preview (Hancom-rendered saved file)
+  appHwpxTabEdit: 'Edit',
+  appHwpxTabPreview: 'Hancom preview',
+  appHwpxPreviewPageOf: 'Preview page {current} of {total}',
+  appHwpxPreviewTitle: 'Hancom preview of the saved file',
+  appHwpxPreviewHint: 'Shows the saved file as Hancom renders it.',
+  appHwpxPreviewRendering: 'Hancom is rendering the saved file; this can take up to 90 seconds.',
+  appHwpxPreviewSaved: 'Saved file, rendered by Hancom {version}',
+  appHwpxPreviewStale: 'Unsaved edits: save to refresh this preview.',
+  appHwpxPreviewFailedShort: 'No preview available.',
+  appHwpxPreviewFailed: 'Hancom could not render the preview: {error}',
+  appHwpxPreviewUnreadable: 'The rendered preview could not be displayed: {error}',
+  appHwpxPreviewRefresh: 'Refresh',
 }

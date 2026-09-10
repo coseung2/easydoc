@@ -119,7 +119,7 @@ export interface HomeApi {
   /** file picker accepting every supported extension, then routes */
   browse(): Promise<void>
   /** open a docs window at its start screen */
-  newDoc(opts?: { projectId?: string }): Promise<void>
+  newDoc(opts?: { projectId?: string; outputFormat?: 'hwpx' }): Promise<void>
   /** open a sheets window */
   newSheet(opts?: { projectId?: string }): Promise<void>
   /** open a slides tab at its start screen (open-a-pptx) */

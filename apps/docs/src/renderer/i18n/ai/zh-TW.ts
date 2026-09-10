@@ -1,6 +1,17 @@
 import type { zh } from './zh'
 
 export const zhTW = {
+  fontNotInstalled: 'Not installed',
+  fontSearch: 'Search fonts',
+  fontFavorites: 'Favorites',
+  fontBasic: 'Basic fonts',
+  fontFavoriteAdd: 'Add favorite',
+  fontFavoriteRemove: 'Remove favorite',
+  fontShowSystem: 'Show system fonts',
+  fontHideSystem: 'Hide system fonts',
+  aiHwpxTitle: 'Create a HWPX document',
+  aiHwpxBody: 'Describe the document you need, or attach reference material.',
+  aiHwpxSaveHint: 'The document is saved as a .hwpx file. Open it in Hancom Hangul to review it.',
   aiEmptyDraftTitle: '讓 AI 幫你從零起草',
   aiEmptyDraftBody1: '描述主題、要點或貼上參考素材,',
   aiEmptyDraftBody2: 'AI 直接為你寫出初稿。',
